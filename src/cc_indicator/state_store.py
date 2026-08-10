@@ -16,6 +16,47 @@ from cc_indicator.processes import find_agent_ancestor, pid_is_alive, terminal_i
 SAFE_ID = re.compile(r"[^A-Za-z0-9._-]")
 
 
+def _path_components(value: object) -> set[str]:
+    if not isinstance(value, str):
+        return set()
+    # Hook payloads can come from a Windows client even when the state store is
+    # read on another platform, so do not rely on pathlib's native separator.
+    normalized = value.replace("\\", "/").strip("/")
+    return {part.casefold() for part in normalized.split("/") if part}
+
+
+def hook_tool(payload: Mapping[str, Any]) -> str:
+    """Identify the producer of a Codex/Claude hook payload.
+
+    Both CLIs expose ``transcript_path``.  Older versions of this project used
+    that field as a Claude marker, which made current Codex hooks appear as
+    Claude sessions.  Prefer an explicit marker, then use fields and paths
+    that are characteristic of each runtime; keep Codex as the conservative
+    fallback for the original Codex-only hook contract.
+    """
+    for key in ("tool", "client"):
+        value = str(payload.get(key) or "").casefold()
+        if "claude" in value:
+            return "claude"
+        if "codex" in value:
+            return "codex"
+
+    event = str(payload.get("hook_event_name") or "")
+    if event == "Notification" or payload.get("notification_type"):
+        return "claude"
+
+    transcript_parts = _path_components(payload.get("transcript_path"))
+    if ".claude" in transcript_parts:
+        return "claude"
+    if ".codex" in transcript_parts:
+        return "codex"
+
+    # Codex's current hook schema includes model/turn_id. Claude's shared
+    # lifecycle payload does not include either field. When neither runtime-
+    # specific marker is present, preserve the original Codex hook contract.
+    return "codex"
+
+
 class StateStore:
     def __init__(self, root: Path | None = None) -> None:
         self.root = root or session_state_dir()
@@ -36,10 +77,7 @@ class StateStore:
         event = str(payload.get("hook_event_name") or "").strip()
         if not session_id or not event:
             return None
-        # Claude Code hooks carry "transcript_path" while Codex hooks do not;
-        # keep the two indistinguishable in the tray but remember the origin so
-        # Codex-only management actions are never offered for Claude sessions.
-        tool = "claude" if isinstance(payload.get("transcript_path"), str) else "codex"
+        tool = hook_tool(payload)
         state = SessionState(
             session_id=session_id,
             status=status_for_event(event, payload),

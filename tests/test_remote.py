@@ -5,10 +5,26 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cc_indicator.remote import REMOTE_CLAUDE_TOGGLE, _socket_source_port, ssh_target
+from cc_indicator.remote import LinuxRemoteScanner, REMOTE_CLAUDE_TOGGLE, _socket_source_port, ssh_target
 
 
 class RemoteScannerTests(unittest.TestCase):
+    def test_claude_toggle_targets_only_hosts_with_claude_settings(self) -> None:
+        scanner = LinuxRemoteScanner()
+        scanner._claude_info = {
+            "codex-only": {"exists": False, "bypass": False},
+            "claude-host": {"exists": True, "bypass": False},
+        }
+        self.assertEqual(scanner.claude_hosts(), ["claude-host"])
+
+    def test_disconnected_hosts_are_removed_from_claude_state(self) -> None:
+        scanner = LinuxRemoteScanner()
+        scanner._claude_info = {"gone": {"exists": True, "bypass": True}}
+        scanner.connections = lambda: []  # type: ignore[method-assign]
+        scanner._probe = lambda _host, _connections: []  # type: ignore[method-assign]
+        scanner.discover(force=True)
+        self.assertEqual(scanner.claude_hosts(), [])
+
     def test_extracts_ssh_alias_after_options(self) -> None:
         self.assertEqual(
             ssh_target(["ssh", "-p", "2222", "-o", "BatchMode=yes", "robot-server"]),

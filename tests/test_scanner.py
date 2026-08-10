@@ -228,6 +228,40 @@ class LinuxScannerTests(unittest.TestCase):
             self.assertEqual(store.list_states()[0].status, SessionStatus.ATTENTION)
             self.assertEqual(store.list_states()[0].event, "PermissionRequest")
 
+    def test_passive_codex_discovery_repairs_wrong_cached_tool(self) -> None:
+        session_id = "019fcc04-9328-70f2-a3e7-362473724c0d"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            process = root / "proc" / str(os.getpid())
+            self._make_agent_process(root, os.getpid(), "codex", "48", root / "workspace")
+            rollout = root / "sessions" / f"rollout-{session_id}.jsonl"
+            rollout.parent.mkdir(parents=True)
+            rollout.write_text(
+                json.dumps({"type": "event_msg", "payload": {"type": "task_complete"}}) + "\n",
+                encoding="utf-8",
+            )
+            (process / "fd" / "42").symlink_to(rollout)
+            store = StateStore(root / "state")
+            store.write(
+                SessionState(
+                    session_id=session_id,
+                    status=SessionStatus.DONE,
+                    cwd=str(root / "workspace"),
+                    event="Stop",
+                    updated_at=time.time(),
+                    pid=os.getpid(),
+                    terminal_id="GNOME_TERMINAL_SCREEN:old",
+                    thread_id=session_id,
+                    tool="claude",
+                )
+            )
+
+            LinuxSessionScanner(root / "proc").reconcile(store)
+
+            state = store.list_states()[0]
+            self.assertEqual(state.tool, "codex")
+            self.assertEqual(state.terminal_id, "TTY:/dev/pts/48")
+
     @staticmethod
     def _make_agent_process(root: Path, pid: int, comm: str, tty: str, workspace: Path) -> None:
         process = root / "proc" / str(pid)

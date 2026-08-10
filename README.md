@@ -13,7 +13,7 @@
 - 本机终端，以及 Ubuntu 上已连接 SSH 服务器的 Codex / Claude 终端
 - 点击会话直接跳转到对应终端
 - 修改对话名称、归档对话、新建 Codex / Claude 终端
-- 状态栏按状态显示颜色和数量
+- 状态栏按状态和工具显示颜色、数量，能区分 Codex 与 Claude
 
 它不复制完整聊天记录，不创建工作树，不需要 tmux、Docker、Electron 或云服务。所有数据留在本机。
 
@@ -81,6 +81,8 @@ cc-indicator --install-autostart
 cc-indicator --dump-status
 cc-indicator --doctor
 ```
+
+`--dump-status` 输出中会包含每个会话的 `tool` 字段，便于检查本机和 SSH 会话是否被正确识别。
 
 运行测试：
 

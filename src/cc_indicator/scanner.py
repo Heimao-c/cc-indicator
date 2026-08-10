@@ -510,6 +510,7 @@ class LinuxSessionScanner:
                 and previous
                 and previous.event not in {"PassiveDiscovery", "RemoteDiscovery"}
                 and previous.pid == item.pid
+                and previous.tool == item.tool
                 and (
                     previous.terminal_id is None
                     or previous.terminal_id == item.terminal_id

@@ -7,7 +7,7 @@ from typing import Any
 from cc_indicator import __version__, autostart, hooks
 from cc_indicator.i18n import text
 from cc_indicator.models import SessionStatus
-from cc_indicator.presentation import session_row, shorten
+from cc_indicator.presentation import session_row, shorten, status_summary, summary_text, tool_label, tool_summary
 from cc_indicator.service import SessionService, SessionView
 
 
@@ -60,7 +60,7 @@ class PortableTrayApp:
         for session in sessions[:30]:
             items.append(
                 Item(
-                    f"{session.project} — {shorten(session.title, 14)}",
+                    f"[{tool_label(session.tool)}] {session.project} — {shorten(session.title, 14)}",
                     Menu(
                         Item(text("rename"), lambda *_args, current=session: self._rename(current)),
                         Item(text("archive"), lambda *_args, current=session: self._archive(current)),
@@ -78,7 +78,10 @@ class PortableTrayApp:
         Menu = self.pystray.Menu
         Item = self.pystray.MenuItem
         noop = lambda *_args: None
-        rows = [Item(text("header"), noop, enabled=False)]
+        rows = [
+            Item(summary_text(sessions), noop, enabled=False),
+            Item(text("header"), noop, enabled=False),
+        ]
         if sessions:
             rows.extend(self._session_menu(session) for session in sessions[:30])
         else:
@@ -301,9 +304,9 @@ class PortableTrayApp:
             if counts[SessionStatus.DONE]
             else "neutral"
         )
-        summary = f"CC: {counts[SessionStatus.WORKING]} working, {counts[SessionStatus.ATTENTION]} attention"
+        summary = f"CC · {summary_text(sessions)} · {status_summary(sessions)}"
         self.icon.icon = self._image(state)
-        self.icon.title = summary
+        self.icon.title = f"{summary} · {tool_summary(sessions)}"
         self.icon.menu = self._menu(sessions)
         self.icon.update_menu()
         self._fingerprint = fingerprint

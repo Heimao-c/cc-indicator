@@ -293,6 +293,8 @@ def codex_activity(cwd):
 
 def metadata(home, session_id, fallback_cwd):
     title = ""
+    named_title = ""
+    database_title = ""
     stored_cwd = ""
     databases = sorted(home.glob("state_*.sqlite"), reverse=True)
     for database in databases:
@@ -309,17 +311,26 @@ def metadata(home, session_id, fallback_cwd):
             continue
         if row:
             values = dict(zip(wanted, row))
-            title = next((clean(values.get(key)) for key in ("name", "title", "first_user_message") if values.get(key)), "")
+            named_title = clean(values.get("name"))
+            database_title = next(
+                (clean(values.get(key)) for key in ("title", "first_user_message") if values.get(key)),
+                "",
+            )
             stored_cwd = str(values.get("cwd") or "")
             break
+    title = named_title
     if not title:
         try:
             for line in (home / "session_index.jsonl").read_text(encoding="utf-8", errors="replace").splitlines():
-                value = json.loads(line)
-                if str(value.get("id")) == session_id:
+                try:
+                    value = json.loads(line)
+                except Exception:
+                    continue
+                if str(value.get("id")) == session_id and clean(value.get("thread_name")):
                     title = clean(value.get("thread_name"))
         except Exception:
             pass
+    title = title or database_title
     cwd = stored_cwd or fallback_cwd
     return title or ("Session " + session_id[:8]), project_name(cwd), cwd
 
@@ -636,7 +647,9 @@ class LinuxRemoteScanner:
         }
 
     def claude_hosts(self) -> list[str]:
-        return sorted(self._claude_info)
+        return sorted(
+            host for host, info in self._claude_info.items() if info.get("exists")
+        )
 
     def set_claude_allow_all(self, enabled: bool) -> int:
         """Apply the Claude auto-approve toggle to every connected remote host."""
@@ -755,6 +768,10 @@ class LinuxRemoteScanner:
         by_host: dict[str, list[SshConnection]] = {}
         for connection in self.connections():
             by_host.setdefault(connection.host, []).append(connection)
+        # A disconnected SSH process must not remain eligible for later
+        # Claude settings changes just because its last probe succeeded.
+        for host in set(self._claude_info) - set(by_host):
+            del self._claude_info[host]
         for host, connections in by_host.items():
             for session in self._probe(host, connections):
                 key = (session.host, session.session_id)

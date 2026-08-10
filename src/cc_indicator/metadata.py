@@ -77,9 +77,12 @@ class MetadataResolver:
         now = time.monotonic()
         if cached and now - cached[0] < self.cache_seconds:
             return cached[1]
-        title, stored_cwd = self._from_sqlite(session_id)
-        if not title:
-            title = self._from_index(session_id)
+        named_title, database_title, stored_cwd = self._from_sqlite(session_id)
+        # Codex keeps user-facing renames in session_index.jsonl while the
+        # database title/first_user_message may remain the original prompt.
+        # An explicit database name is still the strongest source when one is
+        # available (for example after thread/name/set).
+        title = named_title or self._from_index(session_id) or database_title
         if not title:
             title = self._from_claude_transcript(session_id)
         cwd = stored_cwd or fallback_cwd
@@ -100,7 +103,7 @@ class MetadataResolver:
 
         return sorted(self.home.glob("state_*.sqlite"), key=numeric_suffix, reverse=True)
 
-    def _from_sqlite(self, session_id: str) -> tuple[str, str]:
+    def _from_sqlite(self, session_id: str) -> tuple[str, str, str]:
         for database in self._state_databases():
             try:
                 uri = f"{database.resolve().as_uri()}?mode=ro"
@@ -121,12 +124,17 @@ class MetadataResolver:
             if not row:
                 continue
             values = dict(zip(wanted, row))
-            title = next(
-                (clean_title(str(values.get(key) or "")) for key in ("name", "title", "first_user_message") if values.get(key)),
+            named_title = clean_title(str(values.get("name") or ""))
+            database_title = next(
+                (
+                    clean_title(str(values.get(key) or ""))
+                    for key in ("title", "first_user_message")
+                    if values.get(key)
+                ),
                 "",
             )
-            return title, str(values.get("cwd") or "")
-        return "", ""
+            return named_title, database_title, str(values.get("cwd") or "")
+        return "", "", ""
 
     def _from_index(self, session_id: str) -> str:
         index = self.home / "session_index.jsonl"
@@ -141,7 +149,9 @@ class MetadataResolver:
             except (json.JSONDecodeError, TypeError):
                 continue
             if str(value.get("id")) == session_id:
-                title = clean_title(str(value.get("thread_name") or ""))
+                candidate = clean_title(str(value.get("thread_name") or ""))
+                if candidate:
+                    title = candidate
         return title
 
     def _from_claude_transcript(self, session_id: str) -> str:

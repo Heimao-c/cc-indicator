@@ -13,7 +13,7 @@ A small system-tray monitor for seeing multiple Codex CLI and Claude Code CLI te
 - Local terminals and, on Ubuntu, Codex and Claude terminals in existing SSH sessions
 - Click a session to focus its terminal
 - Rename or archive conversations, and open a new Codex or Claude terminal
-- Colored status counts in the panel or system tray
+- Colored status and per-tool counts in the panel or system tray
 
 It does not mirror full transcripts, create worktrees, require tmux/Docker/Electron, or use a cloud service. Data stays on the local machine.
 
@@ -71,6 +71,8 @@ cc-indicator --install-autostart
 cc-indicator --dump-status
 cc-indicator --doctor
 ```
+
+`--dump-status` includes a `tool` field for every session, making it easy to verify local and SSH identification.
 
 Run tests with:
 

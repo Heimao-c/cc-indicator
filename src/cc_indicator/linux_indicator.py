@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import html
 import logging
 from importlib.resources import as_file, files
 from typing import Callable
 
 from cc_indicator import __version__
 from cc_indicator import autostart, hooks
-from cc_indicator.i18n import COLOR_SYMBOLS, STATUS_COLORS, text
+from cc_indicator.i18n import COLOR_SYMBOLS, text
 from cc_indicator.models import SessionStatus
-from cc_indicator.presentation import session_row, shorten
+from cc_indicator.presentation import session_row_markup, shorten, summary_text, tool_label
 from cc_indicator.service import SessionService, SessionView
 
 
@@ -51,16 +50,16 @@ class LinuxIndicatorApp:
         item = self.Gtk.MenuItem()
         label = self.Gtk.Label()
         label.set_xalign(0)
-        label.set_markup(
-            f'<span foreground="{STATUS_COLORS[session.status]}">'
-            f'{html.escape(session_row(session))}</span>'
-        )
+        label.set_markup(session_row_markup(session))
+        label.set_margin_start(8)
+        label.set_margin_top(4)
+        label.set_margin_bottom(4)
         item.add(label)
         item.connect("activate", self._focus, session)
         return item
 
     def _management_item(self, session: SessionView) -> object:
-        label = f"{session.project} — {shorten(session.title, 14)}"
+        label = f"[{tool_label(session.tool)}] {session.project} — {shorten(session.title, 14)}"
         item = self.Gtk.MenuItem(label=label)
         actions = self.Gtk.Menu()
         rename_item = self.Gtk.MenuItem(label=text("rename"))
@@ -261,6 +260,7 @@ class LinuxIndicatorApp:
 
     def _rebuild_menu(self, sessions: list[SessionView]) -> None:
         menu = self.Gtk.Menu()
+        menu.append(self._disabled_item(summary_text(sessions)))
         menu.append(self._disabled_item(text("header")))
         menu.append(self.Gtk.SeparatorMenuItem())
         if sessions:
@@ -336,8 +336,13 @@ class LinuxIndicatorApp:
         if done:
             parts.append(f"{COLOR_SYMBOLS[SessionStatus.DONE]}{done}")
         summary = " ".join(parts) if parts else "0"
-        label = " CC " + summary
-        self.indicator.set_label(label, f"CC Indicator · {summary}")
+        tools = self.service.tool_counts(sessions)
+        tool_text = (
+            f"{text('tool_codex')} {tools['codex']} · "
+            f"{text('tool_claude')} {tools['claude']}"
+        )
+        label = " CC " + summary + "  " + tool_text
+        self.indicator.set_label(label, f"CC Indicator · {summary_text(sessions)} · {summary}")
         icon = (
             "cc-indicator-attention"
             if attention

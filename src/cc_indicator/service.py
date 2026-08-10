@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 
 from cc_indicator import hooks
 from cc_indicator.codex_control import CodexAppServerClient
+from cc_indicator.i18n import text
 from cc_indicator.metadata import MetadataResolver
 from cc_indicator.models import STATUS_ORDER, SessionStatus
 from cc_indicator.scanner import PassiveScanner
@@ -37,7 +38,7 @@ class SessionView:
 
     @property
     def location(self) -> str:
-        return self.source_host or "本机"
+        return self.source_host or text("local")
 
 
 class SessionService:
@@ -114,6 +115,13 @@ class SessionService:
         counts = {status: 0 for status in SessionStatus}
         for session in sessions:
             counts[session.status] += 1
+        return counts
+
+    @staticmethod
+    def tool_counts(sessions: list[SessionView]) -> dict[str, int]:
+        counts = {"codex": 0, "claude": 0}
+        for session in sessions:
+            counts["claude" if session.tool == "claude" else "codex"] += 1
         return counts
 
     @staticmethod
