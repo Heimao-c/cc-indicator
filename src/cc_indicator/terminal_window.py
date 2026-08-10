@@ -41,6 +41,8 @@ APPROVAL_ACCEPT_MARKERS = (
     "yes, proceed",
     "yes, just this once",
     "yes, grant these permissions for this turn",
+    "allow once",
+    "allow this time",
 )
 HIGH_RISK_APPROVAL_PATTERNS = (
     re.compile(r"\b(?:mkfs(?:\.[a-z0-9_-]+)?|wipefs|blkdiscard)\b", re.IGNORECASE),
@@ -128,9 +130,12 @@ class ApprovalBatchResult:
 
 
 def _approval_pane(value: str) -> str:
-    lowered = value.casefold()
+    # VTE exposes wrapped terminal lines with embedded newlines. Match the
+    # semantic prompt rather than requiring the phrase to fit one visual row.
+    compact = " ".join(value.split())
+    lowered = compact.casefold()
     start = max((lowered.rfind(marker) for marker in APPROVAL_PROMPT_MARKERS), default=-1)
-    return value[start:] if start >= 0 else ""
+    return compact[start:] if start >= 0 else ""
 
 
 def is_approval_screen(value: str) -> bool:

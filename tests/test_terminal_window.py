@@ -107,6 +107,16 @@ class TerminalWindowTests(unittest.TestCase):
                 "> Yes, grant these permissions for this turn"
             )
         )
+        self.assertTrue(
+            is_approval_screen(
+                "Would you like to run the\nfollowing command?\n> 1. Yes,\nproceed"
+            )
+        )
+        self.assertTrue(
+            is_approval_screen(
+                "Would you like to run the following command?\n> 1. Allow once"
+            )
+        )
         self.assertFalse(
             is_approval_screen(
                 "Which camera should be used?\n> D435 (Recommended)\n  D455"
