@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 
 from cc_indicator import hooks
 from cc_indicator.codex_control import CodexAppServerClient
+from cc_indicator.i18n import text
 from cc_indicator.metadata import MetadataResolver
 from cc_indicator.models import STATUS_ORDER, SessionStatus
 from cc_indicator.scanner import PassiveScanner
@@ -37,7 +38,7 @@ class SessionView:
 
     @property
     def location(self) -> str:
-        return self.source_host or "本机"
+        return self.source_host or text("local")
 
 
 class SessionService:
@@ -117,6 +118,13 @@ class SessionService:
         return counts
 
     @staticmethod
+    def tool_counts(sessions: list[SessionView]) -> dict[str, int]:
+        counts = {"codex": 0, "claude": 0}
+        for session in sessions:
+            counts["claude" if session.tool == "claude" else "codex"] += 1
+        return counts
+
+    @staticmethod
     def fingerprint(sessions: list[SessionView]) -> tuple[tuple[object, ...], ...]:
         return tuple(
             (
@@ -157,11 +165,17 @@ class SessionService:
 
     def focus(self, session: SessionView) -> None:
         current = session
-        if sys.platform.startswith("linux") and current.window_id is None:
-            current = next(
-                (item for item in self.sessions() if item.session_id == session.session_id),
-                session,
-            )
+        # Window IDs are transient: GNOME Terminal can recreate a window or
+        # change the active tab after the menu was built. Always rematch on
+        # Linux so a click cannot target a stale X11 window.
+        if sys.platform.startswith("linux"):
+            matched = self.windows.match([session], force=True).get(session.session_id)
+            if matched:
+                current = replace(
+                    session,
+                    window_id=matched.window_id,
+                    window_title=matched.title,
+                )
         focus_terminal(pid=current.pid, window_id=current.window_id)
 
     @property
@@ -195,6 +209,20 @@ class SessionService:
             for session in (sessions if sessions is not None else self.sessions())
             if session.tool == "codex"
         ]
+        if sys.platform.startswith("linux") and codex_sessions:
+            matched = self.windows.match(codex_sessions, force=True)
+            codex_sessions = [
+                replace(
+                    session,
+                    window_id=matched[session.session_id].window_id
+                    if session.session_id in matched
+                    else session.window_id,
+                    window_title=matched[session.session_id].title
+                    if session.session_id in matched
+                    else session.window_title,
+                )
+                for session in codex_sessions
+            ]
         return self.approvals.approve_all(
             codex_sessions,
             allow_high_risk=allow_high_risk,

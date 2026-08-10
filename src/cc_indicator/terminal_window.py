@@ -41,6 +41,8 @@ APPROVAL_ACCEPT_MARKERS = (
     "yes, proceed",
     "yes, just this once",
     "yes, grant these permissions for this turn",
+    "allow once",
+    "allow this time",
 )
 HIGH_RISK_APPROVAL_PATTERNS = (
     re.compile(r"\b(?:mkfs(?:\.[a-z0-9_-]+)?|wipefs|blkdiscard)\b", re.IGNORECASE),
@@ -128,9 +130,12 @@ class ApprovalBatchResult:
 
 
 def _approval_pane(value: str) -> str:
-    lowered = value.casefold()
+    # VTE exposes wrapped terminal lines with embedded newlines. Match the
+    # semantic prompt rather than requiring the phrase to fit one visual row.
+    compact = " ".join(value.split())
+    lowered = compact.casefold()
     start = max((lowered.rfind(marker) for marker in APPROVAL_PROMPT_MARKERS), default=-1)
-    return value[start:] if start >= 0 else ""
+    return compact[start:] if start >= 0 else ""
 
 
 def is_approval_screen(value: str) -> bool:
@@ -212,10 +217,15 @@ class TerminalWindowResolver:
             score += 10
         return score
 
-    def match(self, sessions: list["SessionView"]) -> dict[str, TerminalWindow]:
+    def match(
+        self,
+        sessions: list["SessionView"],
+        *,
+        force: bool = False,
+    ) -> dict[str, TerminalWindow]:
         candidates = []
         for session in sessions:
-            for window in self.windows():
+            for window in self.windows(force=force):
                 score = self._score(session, window)
                 if score >= 50:
                     candidates.append((score, session.session_id, window))
@@ -250,6 +260,56 @@ class _XEvent(ctypes.Union):
 def focus_x11_window(window_id: int) -> None:
     if not sys.platform.startswith("linux"):
         raise RuntimeError("当前系统暂不支持按窗口跳转")
+    # xdotool uses the desktop's normal activation path and handles window
+    # managers that reject a raw _NET_ACTIVE_WINDOW client message. Keep the
+    # ctypes implementation below as a dependency-free fallback.
+    try:
+        result = subprocess.run(
+            ["xdotool", "windowactivate", "--sync", hex(window_id)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        result = None
+    if result is not None and result.returncode == 0:
+        active = active_x11_window()
+        LOG.info(
+            "X11 activation target=%s active_before/after_check=%s",
+            hex(window_id),
+            hex(active) if active is not None else "unknown",
+        )
+        if active is None or active == window_id:
+            return
+        # Some GNOME Shell/AppIndicator combinations accept the activation
+        # request but leave the previous application focused. Escalate through
+        # the explicit focus/raise operations before using the X11 fallback.
+        for command in (
+            ["xdotool", "windowraise", hex(window_id)],
+            ["xdotool", "windowfocus", "--sync", hex(window_id)],
+            ["xdotool", "windowactivate", "--sync", hex(window_id)],
+        ):
+            try:
+                retry = subprocess.run(
+                    command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if retry.returncode != 0:
+                continue
+            active = active_x11_window()
+            if active is None or active == window_id:
+                return
+        LOG.warning(
+            "X11 activation did not make target active: target=%s active=%s",
+            hex(window_id),
+            hex(active) if active is not None else "unknown",
+        )
     try:
         x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
     except OSError as error:
@@ -592,6 +652,9 @@ def press_enter_x11() -> None:
 
 
 class TerminalApprovalController:
+    APPROVAL_SCREEN_RETRIES = 4
+    APPROVAL_SCREEN_RETRY_DELAY = 0.2
+
     def __init__(
         self,
         screen_reader=approval_screen_text,
@@ -605,6 +668,17 @@ class TerminalApprovalController:
         self.press_enter = press_enter
         self.active_window = active_window
         self.pause = pause
+
+    def _read_approval_screen(self, window_id: int) -> str:
+        """Allow a newly-rendered Codex approval pane a short time to settle."""
+        screen = ""
+        for attempt in range(self.APPROVAL_SCREEN_RETRIES):
+            screen = self.screen_reader(window_id)
+            if is_approval_screen(screen):
+                return screen
+            if attempt + 1 < self.APPROVAL_SCREEN_RETRIES:
+                self.pause(self.APPROVAL_SCREEN_RETRY_DELAY)
+        return screen
 
     @property
     def supported(self) -> bool:
@@ -631,8 +705,18 @@ class TerminalApprovalController:
                 if session.status != SessionStatus.ATTENTION or session.window_id is None:
                     continue
                 try:
-                    screen = self.screen_reader(session.window_id)
+                    LOG.info(
+                        "Checking approval session=%s window=%s",
+                        session.session_id,
+                        hex(session.window_id),
+                    )
+                    screen = self._read_approval_screen(session.window_id)
                     if not is_approval_screen(screen):
+                        LOG.info(
+                            "Skipping session=%s: approval pane not detected after %d reads",
+                            session.session_id,
+                            self.APPROVAL_SCREEN_RETRIES,
+                        )
                         skipped += 1
                         continue
                     risk_summary = high_risk_approval_summary(screen)
@@ -643,8 +727,9 @@ class TerminalApprovalController:
                     self.pause(0.18)
                     if self.active_window() != session.window_id:
                         raise RuntimeError("无法激活对应终端")
-                    screen = self.screen_reader(session.window_id)
+                    screen = self._read_approval_screen(session.window_id)
                     if not is_approval_screen(screen):
+                        LOG.info("Skipping session=%s: approval pane disappeared", session.session_id)
                         skipped += 1
                         continue
                     risk_summary = high_risk_approval_summary(screen)
@@ -653,6 +738,7 @@ class TerminalApprovalController:
                         continue
                     self.press_enter()
                     approved += 1
+                    LOG.info("Sent approval key to session=%s", session.session_id)
                     self.pause(0.12)
                 except Exception as error:
                     LOG.warning("Could not approve terminal %s", session.session_id, exc_info=True)

@@ -17,7 +17,12 @@ from cc_indicator.terminal_window import (
 
 
 class StubWindowResolver(TerminalWindowResolver):
+    def __init__(self) -> None:
+        super().__init__(cache_seconds=0)
+        self.forced = False
+
     def windows(self, force: bool = False) -> list[TerminalWindow]:
+        self.forced = force
         return [
             TerminalWindow(1, "[ ! ] Action Required | CARI4D"),
             TerminalWindow(2, "CARI4D"),
@@ -46,6 +51,19 @@ class TerminalWindowTests(unittest.TestCase):
             focus_macos_terminal(123)
         self.assertEqual(run.call_args_list[1].args[0][-1], "/dev/ttys004")
 
+    def test_focuses_x11_window_with_xdotool(self) -> None:
+        with patch("cc_indicator.terminal_window.sys.platform", "linux"), patch(
+            "cc_indicator.terminal_window.subprocess.run",
+            return_value=subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+        ) as run, patch(
+            "cc_indicator.terminal_window.active_x11_window",
+            return_value=0x1234,
+        ):
+            from cc_indicator.terminal_window import focus_x11_window
+
+            focus_x11_window(0x1234)
+        self.assertEqual(run.call_args.args[0], ["xdotool", "windowactivate", "--sync", "0x1234"])
+
     def test_matches_remote_attention_and_local_done_with_same_project(self) -> None:
         remote = SessionView(
             session_id="remote",
@@ -71,6 +89,11 @@ class TerminalWindowTests(unittest.TestCase):
         self.assertTrue(matched["remote"].needs_attention)
         self.assertEqual(matched["local"].window_id, 2)
 
+    def test_can_force_refresh_when_listing_windows(self) -> None:
+        resolver = StubWindowResolver()
+        resolver.windows(force=True)
+        self.assertTrue(resolver.forced)
+
     def test_only_accepts_real_approval_panes(self) -> None:
         self.assertTrue(
             is_approval_screen(
@@ -82,6 +105,16 @@ class TerminalWindowTests(unittest.TestCase):
             is_approval_screen(
                 "Would you like to grant these permissions?\n"
                 "> Yes, grant these permissions for this turn"
+            )
+        )
+        self.assertTrue(
+            is_approval_screen(
+                "Would you like to run the\nfollowing command?\n> 1. Yes,\nproceed"
+            )
+        )
+        self.assertTrue(
+            is_approval_screen(
+                "Would you like to run the following command?\n> 1. Allow once"
             )
         )
         self.assertFalse(
@@ -209,3 +242,38 @@ class TerminalWindowTests(unittest.TestCase):
         self.assertEqual(pressed, [1])
         self.assertEqual(activated, [1, 99])
         self.assertEqual(active[0], 99)
+
+    def test_approve_all_retries_until_approval_pane_is_rendered(self) -> None:
+        active = [99]
+        pressed: list[int] = []
+        reads = iter(
+            [
+                "Codex is preparing the command",
+                "Would you like to run the following command?\n> Yes, proceed",
+                "Would you like to run the following command?\n> Yes, proceed",
+            ]
+        )
+
+        controller = TerminalApprovalController(
+            screen_reader=lambda _window_id: next(reads),
+            activate=lambda window_id: active.__setitem__(0, window_id),
+            press_enter=lambda: pressed.append(active[0]),
+            active_window=lambda: active[0],
+            pause=lambda _seconds: None,
+        )
+        session = SessionView(
+            session_id="approval",
+            thread_id="approval",
+            status=SessionStatus.ATTENTION,
+            project="project",
+            title="approval",
+            cwd="/workspace",
+            updated_at=1,
+            window_id=1,
+        )
+
+        result = controller.approve_all([session])
+
+        self.assertEqual(result.approved, 1)
+        self.assertEqual(result.skipped, 0)
+        self.assertEqual(pressed, [1])

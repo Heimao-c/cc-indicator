@@ -2,12 +2,13 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
 
 from cc_indicator.models import SessionState, SessionStatus
-from cc_indicator.scanner import LinuxSessionScanner
+from cc_indicator.scanner import LinuxSessionScanner, PassiveScanner
 from cc_indicator.state_store import StateStore
 
 
@@ -227,6 +228,40 @@ class LinuxScannerTests(unittest.TestCase):
             LinuxSessionScanner(root / "proc").reconcile(store)
             self.assertEqual(store.list_states()[0].status, SessionStatus.ATTENTION)
             self.assertEqual(store.list_states()[0].event, "PermissionRequest")
+
+    def test_passive_codex_discovery_repairs_wrong_cached_tool(self) -> None:
+        session_id = "019fcc04-9328-70f2-a3e7-362473724c0d"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            process = root / "proc" / str(os.getpid())
+            self._make_agent_process(root, os.getpid(), "codex", "48", root / "workspace")
+            rollout = root / "sessions" / f"rollout-{session_id}.jsonl"
+            rollout.parent.mkdir(parents=True)
+            rollout.write_text(
+                json.dumps({"type": "event_msg", "payload": {"type": "task_complete"}}) + "\n",
+                encoding="utf-8",
+            )
+            (process / "fd" / "42").symlink_to(rollout)
+            store = StateStore(root / "state")
+            store.write(
+                SessionState(
+                    session_id=session_id,
+                    status=SessionStatus.DONE,
+                    cwd=str(root / "workspace"),
+                    event="Stop",
+                    updated_at=time.time(),
+                    pid=os.getpid(),
+                    terminal_id="GNOME_TERMINAL_SCREEN:old",
+                    thread_id=session_id,
+                    tool="claude",
+                )
+            )
+
+            LinuxSessionScanner(root / "proc").reconcile(store)
+
+            state = store.list_states()[0]
+            self.assertEqual(state.tool, "codex")
+            self.assertEqual(state.terminal_id, "TTY:/dev/pts/48")
 
     @staticmethod
     def _make_agent_process(root: Path, pid: int, comm: str, tty: str, workspace: Path) -> None:
@@ -469,6 +504,44 @@ class LinuxScannerTests(unittest.TestCase):
             codex_state = states[session_id]
             self.assertEqual(codex_state.tool, "codex")
             self.assertEqual(codex_state.status, SessionStatus.WORKING)
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "requires Linux /proc semantics")
+class PassiveScannerTests(unittest.TestCase):
+    def test_remote_probe_does_not_block_local_reconcile(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
+
+        class LocalScanner:
+            def reconcile(self, _store, **_kwargs):
+                return None
+
+        class RemoteScanner:
+            def discover(self, force: bool = False):
+                self.force = force
+                started.set()
+                release.wait(1)
+                return []
+
+            def claude_bypass_state(self):
+                return {}
+
+            def set_claude_allow_all(self, _enabled: bool):
+                return 0
+
+        scanner = PassiveScanner(interval_seconds=0)
+        scanner._scanner = LocalScanner()
+        scanner._remote = RemoteScanner()
+        with tempfile.TemporaryDirectory() as temp:
+            started_at = time.monotonic()
+            scanner.reconcile(StateStore(Path(temp) / "state"))
+            elapsed = time.monotonic() - started_at
+        self.assertTrue(started.wait(1))
+        self.assertLess(elapsed, 0.2)
+        release.set()
+        assert scanner._remote_thread is not None
+        scanner._remote_thread.join(1)
+        self.assertFalse(scanner._remote_thread.is_alive())
 
 
 if __name__ == "__main__":

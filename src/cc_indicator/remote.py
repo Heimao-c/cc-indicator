@@ -272,27 +272,57 @@ def claude_transcript_for(cwd, started, now, config_dir):
     return best[0]
 
 
-def codex_activity(cwd):
-    """(updated_at_ms, first_user_message) of the most recently touched thread."""
-    databases = sorted(Path.home().glob(".codex/state_*.sqlite"), reverse=True)
+def codex_activity(cwd, preferred_thread_id=""):
+    """(updated_at_ms, thread_id, display_title) of the newest thread in cwd."""
+    codex_home = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex"))
+    databases = sorted(codex_home.glob("state_*.sqlite"), reverse=True)
     for database in databases:
         try:
             connection = sqlite3.connect("file:%s?mode=ro" % database, uri=True, timeout=0.2)
-            row = connection.execute(
-                "SELECT updated_at_ms, first_user_message FROM threads"
-                " WHERE cwd = ? ORDER BY updated_at_ms DESC LIMIT 1",
-                (cwd,),
-            ).fetchone()
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(threads)")}
+            title_column = "name" if "name" in columns else "first_user_message"
+            if preferred_thread_id:
+                row = connection.execute(
+                    ("SELECT updated_at_ms, id, %s FROM threads" % title_column)
+                    + " WHERE id = ? LIMIT 1",
+                    (preferred_thread_id,),
+                ).fetchone()
+            else:
+                if "name" in columns and "first_user_message" in columns:
+                    title_filter = (
+                        "(COALESCE(name, '') <> '' OR "
+                        "(COALESCE(first_user_message, '') <> '' AND "
+                        "first_user_message NOT LIKE 'The following is the Codex agent history%'))"
+                    )
+                elif "first_user_message" in columns:
+                    title_filter = (
+                        "COALESCE(first_user_message, '') <> '' AND "
+                        "first_user_message NOT LIKE 'The following is the Codex agent history%'"
+                    )
+                else:
+                    title_filter = "COALESCE(name, '') <> ''"
+                row = connection.execute(
+                    ("SELECT updated_at_ms, id, %s FROM threads" % title_column)
+                    + " WHERE cwd = ? AND " + title_filter
+                    + " ORDER BY updated_at_ms DESC LIMIT 1",
+                    (cwd,),
+                ).fetchone()
             connection.close()
         except Exception:
             continue
         if row and row[0]:
-            return int(row[0]), clean(row[1])
-    return 0, ""
+            thread_id = str(row[1] or "")
+            title = metadata(codex_home, thread_id, cwd)[0] if thread_id else ""
+            if title == "Session " + thread_id[:8]:
+                title = ""
+            return int(row[0]), thread_id, title or clean(row[2])
+    return 0, "", ""
 
 
 def metadata(home, session_id, fallback_cwd):
     title = ""
+    named_title = ""
+    database_title = ""
     stored_cwd = ""
     databases = sorted(home.glob("state_*.sqlite"), reverse=True)
     for database in databases:
@@ -309,17 +339,26 @@ def metadata(home, session_id, fallback_cwd):
             continue
         if row:
             values = dict(zip(wanted, row))
-            title = next((clean(values.get(key)) for key in ("name", "title", "first_user_message") if values.get(key)), "")
+            named_title = clean(values.get("name"))
+            database_title = next(
+                (clean(values.get(key)) for key in ("title", "first_user_message") if values.get(key)),
+                "",
+            )
             stored_cwd = str(values.get("cwd") or "")
             break
+    title = named_title
     if not title:
         try:
             for line in (home / "session_index.jsonl").read_text(encoding="utf-8", errors="replace").splitlines():
-                value = json.loads(line)
-                if str(value.get("id")) == session_id:
+                try:
+                    value = json.loads(line)
+                except Exception:
+                    continue
+                if str(value.get("id")) == session_id and clean(value.get("thread_name")):
                     title = clean(value.get("thread_name"))
         except Exception:
             pass
+    title = title or database_title
     cwd = stored_cwd or fallback_cwd
     return title or ("Session " + session_id[:8]), project_name(cwd), cwd
 
@@ -334,7 +373,7 @@ remote_to_local = {
     for source_port, remote_tty in port_ttys.items()
     if source_port in requested_ports
 }
-home = Path.home() / ".codex"
+home = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex"))
 now = time.time()
 agent_comms = {"codex", "codex.exe", "codex-cli", "codex-cli.exe", "claude", "claude.exe"}
 by_tty = {}
@@ -410,14 +449,16 @@ for name in os.listdir("/proc"):
             # Newer Codex versions keep their conversation state in the
             # app-server database; a recently touched thread means the TUI is
             # busy even without an exposed rollout file.
-            activity_ms, activity_title = codex_activity(cwd)
+            activity_ms, activity_session_id, activity_title = codex_activity(cwd)
             if now * 1000.0 - activity_ms <= 120000.0:
                 status = "working"
             else:
                 status = "done"
+            session_id = activity_session_id or ("process-%s-%s" % (name, tty.replace("/", "-")))
             title = activity_title or ("Codex terminal " + tty)
             project = project_name(cwd)
             resolved_cwd = cwd
+            placeholder = not bool(activity_session_id)
         item = {
             "session_id": session_id,
             "pid": int(name),
@@ -636,7 +677,9 @@ class LinuxRemoteScanner:
         }
 
     def claude_hosts(self) -> list[str]:
-        return sorted(self._claude_info)
+        return sorted(
+            host for host, info in self._claude_info.items() if info.get("exists")
+        )
 
     def set_claude_allow_all(self, enabled: bool) -> int:
         """Apply the Claude auto-approve toggle to every connected remote host."""
@@ -662,9 +705,11 @@ class LinuxRemoteScanner:
                 comm = (root / "comm").read_text(encoding="utf-8", errors="replace").strip()
                 if comm not in {"ssh", "ssh.exe"}:
                     continue
-                tty = os.readlink(root / "fd" / "0")
-                if not tty.startswith("/dev/pts/"):
-                    continue
+                raw_tty = os.readlink(root / "fd" / "0")
+                # A reverse/local-forward SSH session may intentionally use
+                # /dev/null or a pipe for stdin while still exposing a live
+                # Codex TTY on the remote host.
+                tty = raw_tty if raw_tty.startswith("/dev/pts/") else "unknown"
                 argv = [part.decode("utf-8", "replace") for part in (root / "cmdline").read_bytes().split(b"\0") if part]
             except OSError:
                 continue
@@ -702,7 +747,11 @@ class LinuxRemoteScanner:
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=5,
+                # An SSH connection can take several seconds before the
+                # remote probe starts (especially with a cold control path).
+                # The probe itself is read-only, so allow that startup time
+                # instead of silently dropping the host at five seconds.
+                timeout=12,
             )
         except (OSError, subprocess.SubprocessError):
             LOG.debug("Could not query remote Codex sessions on %s", host, exc_info=True)
@@ -755,11 +804,23 @@ class LinuxRemoteScanner:
         by_host: dict[str, list[SshConnection]] = {}
         for connection in self.connections():
             by_host.setdefault(connection.host, []).append(connection)
+        # A disconnected SSH process must not remain eligible for later
+        # Claude settings changes just because its last probe succeeded.
+        for host in set(self._claude_info) - set(by_host):
+            del self._claude_info[host]
         for host, connections in by_host.items():
             for session in self._probe(host, connections):
-                key = (session.host, session.session_id)
+                # SSH aliases and reverse tunnels can reach the same server;
+                # the Codex thread UUID is the stable identity in that case.
+                key = (session.tool, session.session_id)
                 previous = sessions.get(key)
-                if not previous or session.updated_at > previous.updated_at:
+                current_is_unknown_tty = ":unknown:" in session.terminal_id
+                previous_is_unknown_tty = previous and ":unknown:" in previous.terminal_id
+                if (
+                    not previous
+                    or (previous_is_unknown_tty and not current_is_unknown_tty)
+                    or session.updated_at > previous.updated_at
+                ):
                     sessions[key] = session
         self._cached = list(sessions.values())
         self._cached_at = now

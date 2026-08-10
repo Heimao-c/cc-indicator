@@ -53,6 +53,7 @@ def dump_status() -> int:
             "terminal_id": item.terminal_id,
             "window_id": hex(item.window_id) if item.window_id is not None else None,
             "window_title": item.window_title,
+            "tool": item.tool,
             "updated_at": item.updated_at,
         }
         for item in sessions

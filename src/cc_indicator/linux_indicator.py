@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import html
 import logging
 from importlib.resources import as_file, files
 from typing import Callable
 
 from cc_indicator import __version__
 from cc_indicator import autostart, hooks
-from cc_indicator.i18n import COLOR_SYMBOLS, STATUS_COLORS, text
+from cc_indicator.i18n import COLOR_SYMBOLS, text
 from cc_indicator.models import SessionStatus
-from cc_indicator.presentation import session_row, shorten
+from cc_indicator.presentation import session_row_markup, shorten, summary_text, tool_label
 from cc_indicator.service import SessionService, SessionView
 
 
@@ -28,6 +27,8 @@ class LinuxIndicatorApp:
         self.GLib = GLib
         self.Gtk = Gtk
         self.service = service or SessionService()
+        self._pending_focus_session_id: str | None = None
+        self._focus_generation = 0
         self._fingerprint: tuple[tuple[object, ...], ...] | None = None
         self._message = ""
         self._asset_context = as_file(files("cc_indicator.assets"))
@@ -51,16 +52,20 @@ class LinuxIndicatorApp:
         item = self.Gtk.MenuItem()
         label = self.Gtk.Label()
         label.set_xalign(0)
-        label.set_markup(
-            f'<span foreground="{STATUS_COLORS[session.status]}">'
-            f'{html.escape(session_row(session))}</span>'
-        )
+        label.set_markup(session_row_markup(session))
+        label.set_margin_start(8)
+        label.set_margin_top(4)
+        label.set_margin_bottom(4)
         item.add(label)
         item.connect("activate", self._focus, session)
+        # Some Ayatana/AppIndicator menu implementations do not emit
+        # Gtk.MenuItem::activate when a custom child widget is clicked.
+        # Handle the actual mouse release as a fallback for session rows.
+        item.connect("button-release-event", self._focus_button, session)
         return item
 
     def _management_item(self, session: SessionView) -> object:
-        label = f"{session.project} — {shorten(session.title, 14)}"
+        label = f"[{tool_label(session.tool)}] {session.project} — {shorten(session.title, 14)}"
         item = self.Gtk.MenuItem(label=label)
         actions = self.Gtk.Menu()
         rename_item = self.Gtk.MenuItem(label=text("rename"))
@@ -109,19 +114,78 @@ class LinuxIndicatorApp:
         )
 
     def _focus(self, _item: object, session: SessionView) -> None:
-        self._run_safely(lambda: self.service.focus(session), text("focus_success"))
+        self._schedule_focus(session)
+
+    def _focus_button(self, item: object, _event: object, session: SessionView) -> bool:
+        self._schedule_focus(session)
+        # Let the menu finish its normal dismissal before the delayed focus
+        # callback runs. Returning True here keeps the menu open and causes
+        # the desktop to restore the previously focused browser/chat window.
+        return False
+
+    def _schedule_focus(self, session: SessionView) -> None:
+        self._focus_generation += 1
+        generation = self._focus_generation
+        self._pending_focus_session_id = session.session_id
+        # The AppIndicator menu is owned by the desktop shell. Its dismissal
+        # can take longer than Gtk's item callback, so an immediate activation
+        # is sometimes undone when the shell restores the previous window.
+        self.GLib.timeout_add(220, self._focus_after_menu, session, generation)
+
+    def _focus_after_menu(self, session: SessionView, generation: int) -> bool:
+        if (
+            self._focus_generation != generation
+            or self._pending_focus_session_id != session.session_id
+        ):
+            return False
+        self._pending_focus_session_id = None
+        # Do one more activation after the shell has finished dismissing the
+        # menu. This also handles a window ID changing while the menu was open.
+        self.GLib.timeout_add(320, self._retry_focus, session, generation)
+        self._focus_safely(session)
+        return False
+
+    def _focus_safely(self, session: SessionView) -> None:
+        try:
+            self.service.focus(session)
+            self._message = text("focus_success")
+            LOG.info("Focus request completed for session %s", session.session_id)
+        except Exception as error:  # tray callbacks must not terminate the main loop
+            LOG.exception("Could not focus Codex terminal")
+            self._message = str(error)
+        self._fingerprint = None
+        # Refresh after both focus attempts. The refresh may perform a slow SSH
+        # probe, so it must not run between the first and the safety retry.
+        self.GLib.timeout_add(800, self._refresh)
+
+    def _retry_focus(self, session: SessionView, generation: int) -> bool:
+        if self._focus_generation != generation:
+            return False
+        try:
+            self.service.focus(session)
+        except Exception:
+            # The first attempt already reported the result to the user. Keep
+            # this safety retry quiet and leave the normal log for diagnosis.
+            LOG.exception("Focus retry failed")
+        return False
 
     def _approve_all(self, _item: object, sessions: list[SessionView]) -> None:
+        # The AppIndicator menu is owned by the desktop shell. Wait until it
+        # has dismissed before moving focus and sending Enter to a terminal.
+        self.GLib.timeout_add(220, self._approve_all_after_menu, sessions)
+
+    def _approve_all_after_menu(self, sessions: list[SessionView]) -> bool:
         pending = [
             session
             for session in sessions
             if session.status == SessionStatus.ATTENTION and session.tool == "codex"
         ]
+        LOG.info("Approve-all requested: %d pending Codex sessions", len(pending))
         if not pending:
             self._message = text("approve_all_none")
             self._fingerprint = None
             self._refresh()
-            return
+            return False
         try:
             result = self.service.approve_all(pending)
             if result.high_risk:
@@ -170,11 +234,19 @@ class LinuxIndicatorApp:
                 self._message = text("approve_all_success").format(approved=result.approved)
             else:
                 self._message = text("approve_all_none")
+            LOG.info(
+                "Approve-all result: approved=%d skipped=%d errors=%d high_risk=%d",
+                result.approved,
+                result.skipped,
+                len(result.errors),
+                len(result.high_risk),
+            )
         except Exception as error:
             LOG.exception("Could not approve pending Codex requests")
             self._message = str(error)
         self._fingerprint = None
         self._refresh()
+        return False
 
     def _rename(self, _item: object, session: SessionView) -> None:
         dialog = self.Gtk.Dialog(title=text("rename_title"), flags=self.Gtk.DialogFlags.MODAL)
@@ -261,6 +333,7 @@ class LinuxIndicatorApp:
 
     def _rebuild_menu(self, sessions: list[SessionView]) -> None:
         menu = self.Gtk.Menu()
+        menu.append(self._disabled_item(summary_text(sessions)))
         menu.append(self._disabled_item(text("header")))
         menu.append(self.Gtk.SeparatorMenuItem())
         if sessions:
@@ -336,8 +409,13 @@ class LinuxIndicatorApp:
         if done:
             parts.append(f"{COLOR_SYMBOLS[SessionStatus.DONE]}{done}")
         summary = " ".join(parts) if parts else "0"
-        label = " CC " + summary
-        self.indicator.set_label(label, f"CC Indicator · {summary}")
+        tools = self.service.tool_counts(sessions)
+        tool_text = (
+            f"{text('tool_codex')} {tools['codex']} · "
+            f"{text('tool_claude')} {tools['claude']}"
+        )
+        label = " CC " + summary + "  " + tool_text
+        self.indicator.set_label(label, f"CC Indicator · {summary_text(sessions)} · {summary}")
         icon = (
             "cc-indicator-attention"
             if attention

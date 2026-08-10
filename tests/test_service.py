@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from cc_indicator.models import SessionStatus
@@ -64,6 +65,33 @@ class SessionManageTests(unittest.TestCase):
             self.service.archive(session)
         client.return_value.archive.assert_called_once_with("thread-1")
         self.assertFalse(self.store.is_hidden(session.session_id))
+
+    def test_focus_rematches_transient_linux_window_id(self) -> None:
+        stale = _view("thread-1")
+        with patch("cc_indicator.service.sys.platform", "linux"), patch.object(
+            self.service.windows,
+            "match",
+            return_value={"thread-1": SimpleNamespace(window_id=456, title="terminal")},
+        ) as match, patch("cc_indicator.service.focus_terminal") as focus:
+            self.service.focus(stale)
+        match.assert_called_once_with([stale], force=True)
+        focus.assert_called_once_with(pid=None, window_id=456)
+
+    def test_approve_all_rematches_linux_windows(self) -> None:
+        session = _view("thread-1")
+        with patch("cc_indicator.service.sys.platform", "linux"), patch.object(
+            self.service.windows,
+            "match",
+            return_value={"thread-1": SimpleNamespace(window_id=456, title="terminal")},
+        ) as match, patch.object(
+            self.service.approvals,
+            "approve_all",
+            return_value=SimpleNamespace(),
+        ) as approve:
+            self.service.approve_all([session])
+        match.assert_called_once_with([session], force=True)
+        approved_session = approve.call_args.args[0][0]
+        self.assertEqual(approved_session.window_id, 456)
 
     def test_claude_allow_all_delegates_to_hooks_and_remote_hosts(self) -> None:
         with patch("cc_indicator.service.hooks.claude_bypass_enabled", return_value=True) as enabled:

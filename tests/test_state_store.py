@@ -67,6 +67,38 @@ class StateStoreTests(unittest.TestCase):
             self.assertEqual(state.status, SessionStatus.WORKING)
             self.assertEqual(store.list_states()[0].tool, "claude")
 
+    def test_codex_transcript_path_is_not_mistaken_for_claude(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = StateStore(Path(temp))
+            state = store.record_hook(
+                {
+                    "session_id": "codex-1",
+                    "hook_event_name": "PreToolUse",
+                    "cwd": "/workspace",
+                    "transcript_path": "/home/user/.codex/sessions/rollout-codex-1.jsonl",
+                    "model": "gpt-5-codex",
+                    "turn_id": "turn-1",
+                },
+                pid=os.getpid(),
+            )
+            self.assertIsNotNone(state)
+            self.assertEqual(state.tool, "codex")
+
+    def test_claude_notification_without_path_is_claude(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = StateStore(Path(temp))
+            state = store.record_hook(
+                {
+                    "session_id": "claude-2",
+                    "hook_event_name": "Notification",
+                    "notification_type": "permission_prompt",
+                    "cwd": "/workspace",
+                },
+                pid=os.getpid(),
+            )
+            self.assertIsNotNone(state)
+            self.assertEqual(state.tool, "claude")
+
     def test_title_override_and_hidden_survive_restart(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

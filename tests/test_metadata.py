@@ -36,6 +36,27 @@ class MetadataTests(unittest.TestCase):
             result = MetadataResolver(home, cache_seconds=0).resolve("session-2", str(home))
             self.assertEqual(result.title, "Indexed title")
 
+    def test_session_index_rename_beats_original_database_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            database = sqlite3.connect(home / "state_5.sqlite")
+            database.execute(
+                "CREATE TABLE threads (id TEXT PRIMARY KEY, name TEXT, title TEXT, first_user_message TEXT, cwd TEXT)"
+            )
+            database.execute(
+                "INSERT INTO threads VALUES (?, ?, ?, ?, ?)",
+                ("session-3", None, "Original prompt", "Original prompt", str(home)),
+            )
+            database.commit()
+            database.close()
+            (home / "session_index.jsonl").write_text(
+                json.dumps({"id": "session-3", "thread_name": "电脑配置"}) + "\n",
+                encoding="utf-8",
+            )
+
+            result = MetadataResolver(home, cache_seconds=0).resolve("session-3", "/fallback")
+            self.assertEqual(result.title, "电脑配置")
+
     def test_falls_back_to_claude_transcript_first_user_message(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

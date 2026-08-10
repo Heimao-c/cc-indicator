@@ -1,7 +1,16 @@
 from __future__ import annotations
 
-from cc_indicator.i18n import COLOR_SYMBOLS, status_text, text
+import html
+
+from cc_indicator.i18n import COLOR_SYMBOLS, STATUS_COLORS, SYMBOLS, status_text, text
+from cc_indicator.models import SessionStatus
 from cc_indicator.service import SessionView
+
+
+TOOL_COLORS = {
+    "codex": "#3584e4",
+    "claude": "#9141ac",
+}
 
 
 def shorten(value: str, limit: int) -> str:
@@ -26,3 +35,42 @@ def session_row(session: SessionView) -> str:
         f"{COLOR_SYMBOLS[session.status]} {status_text(session.status)} · "
         f"[{tool_label(session.tool)}] {session_location(session)} — {shorten(session.title, 12)}"
     )
+
+
+def session_row_markup(session: SessionView) -> str:
+    """Readable GTK markup with separate status and tool accents."""
+    status = html.escape(f"{SYMBOLS[session.status]} {status_text(session.status)}")
+    tool = html.escape(f"[{tool_label(session.tool)}]")
+    location = html.escape(session_location(session))
+    title = html.escape(shorten(session.title, 18))
+    status_color = STATUS_COLORS[session.status]
+    tool_color = TOOL_COLORS.get(session.tool, TOOL_COLORS["codex"])
+    return (
+        f'<span foreground="{status_color}"><b>{status}</b></span>  '
+        f'<span foreground="{tool_color}"><b>{tool}</b></span>  '
+        f'<b>{location}</b> — {title}'
+    )
+
+
+def status_summary(sessions: list[SessionView]) -> str:
+    values = {status: 0 for status in STATUS_COLORS}
+    for session in sessions:
+        values[session.status] += 1
+    parts = [
+        f"{SYMBOLS[status]}{values[status]}"
+        for status in (SessionStatus.WORKING, SessionStatus.ATTENTION, SessionStatus.DONE)
+        if values[status]
+    ]
+    return " ".join(parts) if parts else "0"
+
+
+def tool_summary(sessions: list[SessionView]) -> str:
+    codex = sum(session.tool != "claude" for session in sessions)
+    claude = sum(session.tool == "claude" for session in sessions)
+    return f"{text('tool_codex')} {codex} · {text('tool_claude')} {claude}"
+
+
+def summary_text(sessions: list[SessionView]) -> str:
+    codex = sum(session.tool != "claude" for session in sessions)
+    claude = sum(session.tool == "claude" for session in sessions)
+    return text("summary").format(total=len(sessions), codex=codex, claude=claude)
