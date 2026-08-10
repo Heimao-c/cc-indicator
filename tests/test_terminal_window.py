@@ -242,3 +242,38 @@ class TerminalWindowTests(unittest.TestCase):
         self.assertEqual(pressed, [1])
         self.assertEqual(activated, [1, 99])
         self.assertEqual(active[0], 99)
+
+    def test_approve_all_retries_until_approval_pane_is_rendered(self) -> None:
+        active = [99]
+        pressed: list[int] = []
+        reads = iter(
+            [
+                "Codex is preparing the command",
+                "Would you like to run the following command?\n> Yes, proceed",
+                "Would you like to run the following command?\n> Yes, proceed",
+            ]
+        )
+
+        controller = TerminalApprovalController(
+            screen_reader=lambda _window_id: next(reads),
+            activate=lambda window_id: active.__setitem__(0, window_id),
+            press_enter=lambda: pressed.append(active[0]),
+            active_window=lambda: active[0],
+            pause=lambda _seconds: None,
+        )
+        session = SessionView(
+            session_id="approval",
+            thread_id="approval",
+            status=SessionStatus.ATTENTION,
+            project="project",
+            title="approval",
+            cwd="/workspace",
+            updated_at=1,
+            window_id=1,
+        )
+
+        result = controller.approve_all([session])
+
+        self.assertEqual(result.approved, 1)
+        self.assertEqual(result.skipped, 0)
+        self.assertEqual(pressed, [1])

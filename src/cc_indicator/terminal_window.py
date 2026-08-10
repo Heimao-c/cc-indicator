@@ -652,6 +652,9 @@ def press_enter_x11() -> None:
 
 
 class TerminalApprovalController:
+    APPROVAL_SCREEN_RETRIES = 4
+    APPROVAL_SCREEN_RETRY_DELAY = 0.2
+
     def __init__(
         self,
         screen_reader=approval_screen_text,
@@ -665,6 +668,17 @@ class TerminalApprovalController:
         self.press_enter = press_enter
         self.active_window = active_window
         self.pause = pause
+
+    def _read_approval_screen(self, window_id: int) -> str:
+        """Allow a newly-rendered Codex approval pane a short time to settle."""
+        screen = ""
+        for attempt in range(self.APPROVAL_SCREEN_RETRIES):
+            screen = self.screen_reader(window_id)
+            if is_approval_screen(screen):
+                return screen
+            if attempt + 1 < self.APPROVAL_SCREEN_RETRIES:
+                self.pause(self.APPROVAL_SCREEN_RETRY_DELAY)
+        return screen
 
     @property
     def supported(self) -> bool:
@@ -696,9 +710,13 @@ class TerminalApprovalController:
                         session.session_id,
                         hex(session.window_id),
                     )
-                    screen = self.screen_reader(session.window_id)
+                    screen = self._read_approval_screen(session.window_id)
                     if not is_approval_screen(screen):
-                        LOG.info("Skipping session=%s: approval pane not detected", session.session_id)
+                        LOG.info(
+                            "Skipping session=%s: approval pane not detected after %d reads",
+                            session.session_id,
+                            self.APPROVAL_SCREEN_RETRIES,
+                        )
                         skipped += 1
                         continue
                     risk_summary = high_risk_approval_summary(screen)
@@ -709,7 +727,7 @@ class TerminalApprovalController:
                     self.pause(0.18)
                     if self.active_window() != session.window_id:
                         raise RuntimeError("无法激活对应终端")
-                    screen = self.screen_reader(session.window_id)
+                    screen = self._read_approval_screen(session.window_id)
                     if not is_approval_screen(screen):
                         LOG.info("Skipping session=%s: approval pane disappeared", session.session_id)
                         skipped += 1
