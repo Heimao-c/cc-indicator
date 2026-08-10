@@ -686,8 +686,14 @@ class TerminalApprovalController:
                 if session.status != SessionStatus.ATTENTION or session.window_id is None:
                     continue
                 try:
+                    LOG.info(
+                        "Checking approval session=%s window=%s",
+                        session.session_id,
+                        hex(session.window_id),
+                    )
                     screen = self.screen_reader(session.window_id)
                     if not is_approval_screen(screen):
+                        LOG.info("Skipping session=%s: approval pane not detected", session.session_id)
                         skipped += 1
                         continue
                     risk_summary = high_risk_approval_summary(screen)
@@ -700,6 +706,7 @@ class TerminalApprovalController:
                         raise RuntimeError("无法激活对应终端")
                     screen = self.screen_reader(session.window_id)
                     if not is_approval_screen(screen):
+                        LOG.info("Skipping session=%s: approval pane disappeared", session.session_id)
                         skipped += 1
                         continue
                     risk_summary = high_risk_approval_summary(screen)
@@ -708,6 +715,7 @@ class TerminalApprovalController:
                         continue
                     self.press_enter()
                     approved += 1
+                    LOG.info("Sent approval key to session=%s", session.session_id)
                     self.pause(0.12)
                 except Exception as error:
                     LOG.warning("Could not approve terminal %s", session.session_id, exc_info=True)

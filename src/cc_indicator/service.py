@@ -209,6 +209,20 @@ class SessionService:
             for session in (sessions if sessions is not None else self.sessions())
             if session.tool == "codex"
         ]
+        if sys.platform.startswith("linux") and codex_sessions:
+            matched = self.windows.match(codex_sessions, force=True)
+            codex_sessions = [
+                replace(
+                    session,
+                    window_id=matched[session.session_id].window_id
+                    if session.session_id in matched
+                    else session.window_id,
+                    window_title=matched[session.session_id].title
+                    if session.session_id in matched
+                    else session.window_title,
+                )
+                for session in codex_sessions
+            ]
         return self.approvals.approve_all(
             codex_sessions,
             allow_high_risk=allow_high_risk,

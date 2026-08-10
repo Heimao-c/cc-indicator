@@ -77,6 +77,22 @@ class SessionManageTests(unittest.TestCase):
         match.assert_called_once_with([stale], force=True)
         focus.assert_called_once_with(pid=None, window_id=456)
 
+    def test_approve_all_rematches_linux_windows(self) -> None:
+        session = _view("thread-1")
+        with patch("cc_indicator.service.sys.platform", "linux"), patch.object(
+            self.service.windows,
+            "match",
+            return_value={"thread-1": SimpleNamespace(window_id=456, title="terminal")},
+        ) as match, patch.object(
+            self.service.approvals,
+            "approve_all",
+            return_value=SimpleNamespace(),
+        ) as approve:
+            self.service.approve_all([session])
+        match.assert_called_once_with([session], force=True)
+        approved_session = approve.call_args.args[0][0]
+        self.assertEqual(approved_session.window_id, 456)
+
     def test_claude_allow_all_delegates_to_hooks_and_remote_hosts(self) -> None:
         with patch("cc_indicator.service.hooks.claude_bypass_enabled", return_value=True) as enabled:
             with patch.object(self.service.scanner, "remote_claude_bypass_state", return_value={}):

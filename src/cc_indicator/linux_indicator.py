@@ -170,16 +170,22 @@ class LinuxIndicatorApp:
         return False
 
     def _approve_all(self, _item: object, sessions: list[SessionView]) -> None:
+        # The AppIndicator menu is owned by the desktop shell. Wait until it
+        # has dismissed before moving focus and sending Enter to a terminal.
+        self.GLib.timeout_add(220, self._approve_all_after_menu, sessions)
+
+    def _approve_all_after_menu(self, sessions: list[SessionView]) -> bool:
         pending = [
             session
             for session in sessions
             if session.status == SessionStatus.ATTENTION and session.tool == "codex"
         ]
+        LOG.info("Approve-all requested: %d pending Codex sessions", len(pending))
         if not pending:
             self._message = text("approve_all_none")
             self._fingerprint = None
             self._refresh()
-            return
+            return False
         try:
             result = self.service.approve_all(pending)
             if result.high_risk:
@@ -228,11 +234,19 @@ class LinuxIndicatorApp:
                 self._message = text("approve_all_success").format(approved=result.approved)
             else:
                 self._message = text("approve_all_none")
+            LOG.info(
+                "Approve-all result: approved=%d skipped=%d errors=%d high_risk=%d",
+                result.approved,
+                result.skipped,
+                len(result.errors),
+                len(result.high_risk),
+            )
         except Exception as error:
             LOG.exception("Could not approve pending Codex requests")
             self._message = str(error)
         self._fingerprint = None
         self._refresh()
+        return False
 
     def _rename(self, _item: object, session: SessionView) -> None:
         dialog = self.Gtk.Dialog(title=text("rename_title"), flags=self.Gtk.DialogFlags.MODAL)
