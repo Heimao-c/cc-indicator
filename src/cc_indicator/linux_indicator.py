@@ -27,6 +27,7 @@ class LinuxIndicatorApp:
         self.GLib = GLib
         self.Gtk = Gtk
         self.service = service or SessionService()
+        self._pending_focus_session_id: str | None = None
         self._fingerprint: tuple[tuple[object, ...], ...] | None = None
         self._message = ""
         self._asset_context = as_file(files("cc_indicator.assets"))
@@ -112,11 +113,27 @@ class LinuxIndicatorApp:
         )
 
     def _focus(self, _item: object, session: SessionView) -> None:
-        self._run_safely(lambda: self.service.focus(session), text("focus_success"))
+        self._schedule_focus(session)
 
     def _focus_button(self, item: object, _event: object, session: SessionView) -> bool:
-        self._focus(item, session)
-        return True
+        self._schedule_focus(session)
+        # Let the menu finish its normal dismissal before the delayed focus
+        # callback runs. Returning True here keeps the menu open and causes
+        # the desktop to restore the previously focused browser/chat window.
+        return False
+
+    def _schedule_focus(self, session: SessionView) -> None:
+        if self._pending_focus_session_id == session.session_id:
+            return
+        self._pending_focus_session_id = session.session_id
+        self.GLib.timeout_add(150, self._focus_after_menu, session)
+
+    def _focus_after_menu(self, session: SessionView) -> bool:
+        if self._pending_focus_session_id != session.session_id:
+            return False
+        self._pending_focus_session_id = None
+        self._run_safely(lambda: self.service.focus(session), text("focus_success"))
+        return False
 
     def _approve_all(self, _item: object, sessions: list[SessionView]) -> None:
         pending = [
