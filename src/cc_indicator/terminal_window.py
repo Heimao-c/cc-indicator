@@ -212,10 +212,15 @@ class TerminalWindowResolver:
             score += 10
         return score
 
-    def match(self, sessions: list["SessionView"]) -> dict[str, TerminalWindow]:
+    def match(
+        self,
+        sessions: list["SessionView"],
+        *,
+        force: bool = False,
+    ) -> dict[str, TerminalWindow]:
         candidates = []
         for session in sessions:
-            for window in self.windows():
+            for window in self.windows(force=force):
                 score = self._score(session, window)
                 if score >= 50:
                     candidates.append((score, session.session_id, window))
@@ -264,7 +269,42 @@ def focus_x11_window(window_id: int) -> None:
     except (OSError, subprocess.SubprocessError):
         result = None
     if result is not None and result.returncode == 0:
-        return
+        active = active_x11_window()
+        LOG.info(
+            "X11 activation target=%s active_before/after_check=%s",
+            hex(window_id),
+            hex(active) if active is not None else "unknown",
+        )
+        if active is None or active == window_id:
+            return
+        # Some GNOME Shell/AppIndicator combinations accept the activation
+        # request but leave the previous application focused. Escalate through
+        # the explicit focus/raise operations before using the X11 fallback.
+        for command in (
+            ["xdotool", "windowraise", hex(window_id)],
+            ["xdotool", "windowfocus", "--sync", hex(window_id)],
+            ["xdotool", "windowactivate", "--sync", hex(window_id)],
+        ):
+            try:
+                retry = subprocess.run(
+                    command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if retry.returncode != 0:
+                continue
+            active = active_x11_window()
+            if active is None or active == window_id:
+                return
+        LOG.warning(
+            "X11 activation did not make target active: target=%s active=%s",
+            hex(window_id),
+            hex(active) if active is not None else "unknown",
+        )
     try:
         x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
     except OSError as error:

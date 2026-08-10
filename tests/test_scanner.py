@@ -2,12 +2,13 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
 
 from cc_indicator.models import SessionState, SessionStatus
-from cc_indicator.scanner import LinuxSessionScanner
+from cc_indicator.scanner import LinuxSessionScanner, PassiveScanner
 from cc_indicator.state_store import StateStore
 
 
@@ -503,6 +504,44 @@ class LinuxScannerTests(unittest.TestCase):
             codex_state = states[session_id]
             self.assertEqual(codex_state.tool, "codex")
             self.assertEqual(codex_state.status, SessionStatus.WORKING)
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "requires Linux /proc semantics")
+class PassiveScannerTests(unittest.TestCase):
+    def test_remote_probe_does_not_block_local_reconcile(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
+
+        class LocalScanner:
+            def reconcile(self, _store, **_kwargs):
+                return None
+
+        class RemoteScanner:
+            def discover(self, force: bool = False):
+                self.force = force
+                started.set()
+                release.wait(1)
+                return []
+
+            def claude_bypass_state(self):
+                return {}
+
+            def set_claude_allow_all(self, _enabled: bool):
+                return 0
+
+        scanner = PassiveScanner(interval_seconds=0)
+        scanner._scanner = LocalScanner()
+        scanner._remote = RemoteScanner()
+        with tempfile.TemporaryDirectory() as temp:
+            started_at = time.monotonic()
+            scanner.reconcile(StateStore(Path(temp) / "state"))
+            elapsed = time.monotonic() - started_at
+        self.assertTrue(started.wait(1))
+        self.assertLess(elapsed, 0.2)
+        release.set()
+        assert scanner._remote_thread is not None
+        scanner._remote_thread.join(1)
+        self.assertFalse(scanner._remote_thread.is_alive())
 
 
 if __name__ == "__main__":

@@ -169,7 +169,7 @@ class SessionService:
         # change the active tab after the menu was built. Always rematch on
         # Linux so a click cannot target a stale X11 window.
         if sys.platform.startswith("linux"):
-            matched = self.windows.match([session]).get(session.session_id)
+            matched = self.windows.match([session], force=True).get(session.session_id)
             if matched:
                 current = replace(
                     session,

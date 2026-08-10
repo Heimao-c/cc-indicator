@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import sys
+import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 from cc_indicator.models import SessionState, SessionStatus
 from cc_indicator.paths import claude_home
-from cc_indicator.remote import LinuxRemoteScanner
+from cc_indicator.remote import LinuxRemoteScanner, RemoteSession
 from cc_indicator.state_store import StateStore
 
 
+LOG = logging.getLogger(__name__)
 SESSION_ID = re.compile(
     r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.jsonl$"
 )
@@ -425,11 +428,20 @@ class LinuxSessionScanner:
                 by_terminal[terminal_id] = item
         return list(by_terminal.values())
 
-    def reconcile(self, store: StateStore, remote: LinuxRemoteScanner | None = None) -> None:
+    def reconcile(
+        self,
+        store: StateStore,
+        remote: LinuxRemoteScanner | None = None,
+        *,
+        remote_sessions: list[RemoteSession] | None = None,
+        preserve_remote: bool = False,
+    ) -> None:
         existing = {state.session_id: state for state in store.list_states(include_closed=True)}
         discovered = self.discover()
-        if remote:
-            for item in remote.discover():
+        if remote_sessions is None and remote:
+            remote_sessions = remote.discover()
+        if remote_sessions is not None:
+            for item in remote_sessions:
                 discovered.append(
                     DiscoveredSession(
                         session_id=item.session_id,
@@ -502,6 +514,11 @@ class LinuxSessionScanner:
             )
         discovered = resolved
         active_ids = {item.state_id for item in discovered}
+        # Keep the last known remote snapshot while its replacement is being
+        # fetched in the background. A slow or temporarily unavailable SSH
+        # host must not block local tray interaction or erase remote rows.
+        if preserve_remote:
+            active_ids.update(state.session_id for state in existing.values() if state.source_host)
         store.prune_discovered(active_ids)
         for item in discovered:
             previous = existing.get(item.state_id)
@@ -559,6 +576,26 @@ class PassiveScanner:
         self._last_scan = 0.0
         self._scanner = LinuxSessionScanner() if sys.platform == "linux" else None
         self._remote = LinuxRemoteScanner() if sys.platform == "linux" else None
+        self._remote_sessions: list[RemoteSession] | None = None
+        self._remote_claude_state: dict[str, bool] = {}
+        self._remote_thread: threading.Thread | None = None
+        self._remote_lock = threading.Lock()
+        self._remote_call_lock = threading.Lock()
+
+    def _refresh_remote(self) -> None:
+        if not self._remote:
+            return
+        try:
+            with self._remote_call_lock:
+                sessions = self._remote.discover(force=True)
+                claude_state = self._remote.claude_bypass_state()
+        except Exception:
+            LOG.debug("Could not refresh remote sessions", exc_info=True)
+            sessions = []
+            claude_state = {}
+        with self._remote_lock:
+            self._remote_sessions = sessions
+            self._remote_claude_state = claude_state
 
     def reconcile(self, store: StateStore) -> None:
         if not self._scanner:
@@ -567,10 +604,35 @@ class PassiveScanner:
         if now - self._last_scan < self.interval_seconds:
             return
         self._last_scan = now
-        self._scanner.reconcile(store, self._remote)
+        with self._remote_lock:
+            remote_sessions = self._remote_sessions
+        self._scanner.reconcile(
+            store,
+            remote_sessions=remote_sessions,
+            preserve_remote=remote_sessions is None,
+        )
+        if self._remote and (
+            self._remote_thread is None or not self._remote_thread.is_alive()
+        ):
+            self._remote_thread = threading.Thread(
+                target=self._refresh_remote,
+                name="cc-indicator-ssh-scan",
+                daemon=True,
+            )
+            self._remote_thread.start()
 
     def remote_claude_bypass_state(self) -> dict[str, bool]:
-        return self._remote.claude_bypass_state() if self._remote else {}
+        if not self._remote:
+            return {}
+        with self._remote_lock:
+            return dict(self._remote_claude_state)
 
     def set_remote_claude_allow_all(self, enabled: bool) -> int:
-        return self._remote.set_claude_allow_all(enabled) if self._remote else 0
+        if not self._remote:
+            return 0
+        with self._remote_call_lock:
+            updated = self._remote.set_claude_allow_all(enabled)
+            claude_state = self._remote.claude_bypass_state()
+        with self._remote_lock:
+            self._remote_claude_state = claude_state
+        return updated

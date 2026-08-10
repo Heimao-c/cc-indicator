@@ -28,6 +28,7 @@ class LinuxIndicatorApp:
         self.Gtk = Gtk
         self.service = service or SessionService()
         self._pending_focus_session_id: str | None = None
+        self._focus_generation = 0
         self._fingerprint: tuple[tuple[object, ...], ...] | None = None
         self._message = ""
         self._asset_context = as_file(files("cc_indicator.assets"))
@@ -123,16 +124,49 @@ class LinuxIndicatorApp:
         return False
 
     def _schedule_focus(self, session: SessionView) -> None:
-        if self._pending_focus_session_id == session.session_id:
-            return
+        self._focus_generation += 1
+        generation = self._focus_generation
         self._pending_focus_session_id = session.session_id
-        self.GLib.timeout_add(150, self._focus_after_menu, session)
+        # The AppIndicator menu is owned by the desktop shell. Its dismissal
+        # can take longer than Gtk's item callback, so an immediate activation
+        # is sometimes undone when the shell restores the previous window.
+        self.GLib.timeout_add(220, self._focus_after_menu, session, generation)
 
-    def _focus_after_menu(self, session: SessionView) -> bool:
-        if self._pending_focus_session_id != session.session_id:
+    def _focus_after_menu(self, session: SessionView, generation: int) -> bool:
+        if (
+            self._focus_generation != generation
+            or self._pending_focus_session_id != session.session_id
+        ):
             return False
         self._pending_focus_session_id = None
-        self._run_safely(lambda: self.service.focus(session), text("focus_success"))
+        # Do one more activation after the shell has finished dismissing the
+        # menu. This also handles a window ID changing while the menu was open.
+        self.GLib.timeout_add(320, self._retry_focus, session, generation)
+        self._focus_safely(session)
+        return False
+
+    def _focus_safely(self, session: SessionView) -> None:
+        try:
+            self.service.focus(session)
+            self._message = text("focus_success")
+            LOG.info("Focus request completed for session %s", session.session_id)
+        except Exception as error:  # tray callbacks must not terminate the main loop
+            LOG.exception("Could not focus Codex terminal")
+            self._message = str(error)
+        self._fingerprint = None
+        # Refresh after both focus attempts. The refresh may perform a slow SSH
+        # probe, so it must not run between the first and the safety retry.
+        self.GLib.timeout_add(800, self._refresh)
+
+    def _retry_focus(self, session: SessionView, generation: int) -> bool:
+        if self._focus_generation != generation:
+            return False
+        try:
+            self.service.focus(session)
+        except Exception:
+            # The first attempt already reported the result to the user. Keep
+            # this safety retry quiet and leave the normal log for diagnosis.
+            LOG.exception("Focus retry failed")
         return False
 
     def _approve_all(self, _item: object, sessions: list[SessionView]) -> None:

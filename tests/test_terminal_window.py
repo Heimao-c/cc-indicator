@@ -17,7 +17,12 @@ from cc_indicator.terminal_window import (
 
 
 class StubWindowResolver(TerminalWindowResolver):
+    def __init__(self) -> None:
+        super().__init__(cache_seconds=0)
+        self.forced = False
+
     def windows(self, force: bool = False) -> list[TerminalWindow]:
+        self.forced = force
         return [
             TerminalWindow(1, "[ ! ] Action Required | CARI4D"),
             TerminalWindow(2, "CARI4D"),
@@ -50,7 +55,10 @@ class TerminalWindowTests(unittest.TestCase):
         with patch("cc_indicator.terminal_window.sys.platform", "linux"), patch(
             "cc_indicator.terminal_window.subprocess.run",
             return_value=subprocess.CompletedProcess([], 0, stdout="", stderr=""),
-        ) as run:
+        ) as run, patch(
+            "cc_indicator.terminal_window.active_x11_window",
+            return_value=0x1234,
+        ):
             from cc_indicator.terminal_window import focus_x11_window
 
             focus_x11_window(0x1234)
@@ -80,6 +88,11 @@ class TerminalWindowTests(unittest.TestCase):
         self.assertEqual(matched["remote"].window_id, 1)
         self.assertTrue(matched["remote"].needs_attention)
         self.assertEqual(matched["local"].window_id, 2)
+
+    def test_can_force_refresh_when_listing_windows(self) -> None:
+        resolver = StubWindowResolver()
+        resolver.windows(force=True)
+        self.assertTrue(resolver.forced)
 
     def test_only_accepts_real_approval_panes(self) -> None:
         self.assertTrue(

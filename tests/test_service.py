@@ -72,8 +72,9 @@ class SessionManageTests(unittest.TestCase):
             self.service.windows,
             "match",
             return_value={"thread-1": SimpleNamespace(window_id=456, title="terminal")},
-        ), patch("cc_indicator.service.focus_terminal") as focus:
+        ) as match, patch("cc_indicator.service.focus_terminal") as focus:
             self.service.focus(stale)
+        match.assert_called_once_with([stale], force=True)
         focus.assert_called_once_with(pid=None, window_id=456)
 
     def test_claude_allow_all_delegates_to_hooks_and_remote_hosts(self) -> None:
