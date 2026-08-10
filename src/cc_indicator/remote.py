@@ -705,9 +705,11 @@ class LinuxRemoteScanner:
                 comm = (root / "comm").read_text(encoding="utf-8", errors="replace").strip()
                 if comm not in {"ssh", "ssh.exe"}:
                     continue
-                tty = os.readlink(root / "fd" / "0")
-                if not tty.startswith("/dev/pts/"):
-                    continue
+                raw_tty = os.readlink(root / "fd" / "0")
+                # A reverse/local-forward SSH session may intentionally use
+                # /dev/null or a pipe for stdin while still exposing a live
+                # Codex TTY on the remote host.
+                tty = raw_tty if raw_tty.startswith("/dev/pts/") else "unknown"
                 argv = [part.decode("utf-8", "replace") for part in (root / "cmdline").read_bytes().split(b"\0") if part]
             except OSError:
                 continue
@@ -808,9 +810,17 @@ class LinuxRemoteScanner:
             del self._claude_info[host]
         for host, connections in by_host.items():
             for session in self._probe(host, connections):
-                key = (session.host, session.session_id)
+                # SSH aliases and reverse tunnels can reach the same server;
+                # the Codex thread UUID is the stable identity in that case.
+                key = (session.tool, session.session_id)
                 previous = sessions.get(key)
-                if not previous or session.updated_at > previous.updated_at:
+                current_is_unknown_tty = ":unknown:" in session.terminal_id
+                previous_is_unknown_tty = previous and ":unknown:" in previous.terminal_id
+                if (
+                    not previous
+                    or (previous_is_unknown_tty and not current_is_unknown_tty)
+                    or session.updated_at > previous.updated_at
+                ):
                     sessions[key] = session
         self._cached = list(sessions.values())
         self._cached_at = now

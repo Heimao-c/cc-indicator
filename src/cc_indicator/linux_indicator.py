@@ -56,6 +56,10 @@ class LinuxIndicatorApp:
         label.set_margin_bottom(4)
         item.add(label)
         item.connect("activate", self._focus, session)
+        # Some Ayatana/AppIndicator menu implementations do not emit
+        # Gtk.MenuItem::activate when a custom child widget is clicked.
+        # Handle the actual mouse release as a fallback for session rows.
+        item.connect("button-release-event", self._focus_button, session)
         return item
 
     def _management_item(self, session: SessionView) -> object:
@@ -109,6 +113,10 @@ class LinuxIndicatorApp:
 
     def _focus(self, _item: object, session: SessionView) -> None:
         self._run_safely(lambda: self.service.focus(session), text("focus_success"))
+
+    def _focus_button(self, item: object, _event: object, session: SessionView) -> bool:
+        self._focus(item, session)
+        return True
 
     def _approve_all(self, _item: object, sessions: list[SessionView]) -> None:
         pending = [

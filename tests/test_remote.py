@@ -5,7 +5,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cc_indicator.remote import LinuxRemoteScanner, REMOTE_CLAUDE_TOGGLE, _socket_source_port, ssh_target
+from cc_indicator.models import SessionStatus
+from cc_indicator.remote import (
+    LinuxRemoteScanner,
+    REMOTE_CLAUDE_TOGGLE,
+    RemoteSession,
+    SshConnection,
+    _socket_source_port,
+    ssh_target,
+)
 
 
 class RemoteScannerTests(unittest.TestCase):
@@ -24,6 +32,34 @@ class RemoteScannerTests(unittest.TestCase):
         scanner._probe = lambda _host, _connections: []  # type: ignore[method-assign]
         scanner.discover(force=True)
         self.assertEqual(scanner.claude_hosts(), [])
+
+    def test_deduplicates_ssh_aliases_by_remote_thread_id(self) -> None:
+        scanner = LinuxRemoteScanner()
+        scanner.connections = lambda: [  # type: ignore[method-assign]
+            SshConnection("interactive-alias", "/dev/pts/0"),
+            SshConnection("reverse-alias", "unknown"),
+        ]
+
+        def probe(host: str, _connections: list[SshConnection]) -> list[RemoteSession]:
+            local_tty = "/dev/pts/0" if host == "interactive-alias" else "unknown"
+            return [
+                RemoteSession(
+                    session_id="same-thread",
+                    pid=123,
+                    cwd="/workspace",
+                    terminal_id=f"SSH:{local_tty}:{host}:pts/2",
+                    status=SessionStatus.WORKING,
+                    updated_at=10,
+                    title="thread",
+                    project="workspace",
+                    host=host,
+                )
+            ]
+
+        scanner._probe = probe  # type: ignore[method-assign]
+        sessions = scanner.discover(force=True)
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(sessions[0].host, "interactive-alias")
 
     def test_extracts_ssh_alias_after_options(self) -> None:
         self.assertEqual(
