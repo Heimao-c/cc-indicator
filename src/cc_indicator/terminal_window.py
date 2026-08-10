@@ -250,6 +250,21 @@ class _XEvent(ctypes.Union):
 def focus_x11_window(window_id: int) -> None:
     if not sys.platform.startswith("linux"):
         raise RuntimeError("当前系统暂不支持按窗口跳转")
+    # xdotool uses the desktop's normal activation path and handles window
+    # managers that reject a raw _NET_ACTIVE_WINDOW client message. Keep the
+    # ctypes implementation below as a dependency-free fallback.
+    try:
+        result = subprocess.run(
+            ["xdotool", "windowactivate", "--sync", hex(window_id)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        result = None
+    if result is not None and result.returncode == 0:
+        return
     try:
         x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
     except OSError as error:

@@ -272,23 +272,51 @@ def claude_transcript_for(cwd, started, now, config_dir):
     return best[0]
 
 
-def codex_activity(cwd):
-    """(updated_at_ms, first_user_message) of the most recently touched thread."""
-    databases = sorted(Path.home().glob(".codex/state_*.sqlite"), reverse=True)
+def codex_activity(cwd, preferred_thread_id=""):
+    """(updated_at_ms, thread_id, display_title) of the newest thread in cwd."""
+    codex_home = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex"))
+    databases = sorted(codex_home.glob("state_*.sqlite"), reverse=True)
     for database in databases:
         try:
             connection = sqlite3.connect("file:%s?mode=ro" % database, uri=True, timeout=0.2)
-            row = connection.execute(
-                "SELECT updated_at_ms, first_user_message FROM threads"
-                " WHERE cwd = ? ORDER BY updated_at_ms DESC LIMIT 1",
-                (cwd,),
-            ).fetchone()
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(threads)")}
+            title_column = "name" if "name" in columns else "first_user_message"
+            if preferred_thread_id:
+                row = connection.execute(
+                    ("SELECT updated_at_ms, id, %s FROM threads" % title_column)
+                    + " WHERE id = ? LIMIT 1",
+                    (preferred_thread_id,),
+                ).fetchone()
+            else:
+                if "name" in columns and "first_user_message" in columns:
+                    title_filter = (
+                        "(COALESCE(name, '') <> '' OR "
+                        "(COALESCE(first_user_message, '') <> '' AND "
+                        "first_user_message NOT LIKE 'The following is the Codex agent history%'))"
+                    )
+                elif "first_user_message" in columns:
+                    title_filter = (
+                        "COALESCE(first_user_message, '') <> '' AND "
+                        "first_user_message NOT LIKE 'The following is the Codex agent history%'"
+                    )
+                else:
+                    title_filter = "COALESCE(name, '') <> ''"
+                row = connection.execute(
+                    ("SELECT updated_at_ms, id, %s FROM threads" % title_column)
+                    + " WHERE cwd = ? AND " + title_filter
+                    + " ORDER BY updated_at_ms DESC LIMIT 1",
+                    (cwd,),
+                ).fetchone()
             connection.close()
         except Exception:
             continue
         if row and row[0]:
-            return int(row[0]), clean(row[1])
-    return 0, ""
+            thread_id = str(row[1] or "")
+            title = metadata(codex_home, thread_id, cwd)[0] if thread_id else ""
+            if title == "Session " + thread_id[:8]:
+                title = ""
+            return int(row[0]), thread_id, title or clean(row[2])
+    return 0, "", ""
 
 
 def metadata(home, session_id, fallback_cwd):
@@ -345,7 +373,7 @@ remote_to_local = {
     for source_port, remote_tty in port_ttys.items()
     if source_port in requested_ports
 }
-home = Path.home() / ".codex"
+home = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex"))
 now = time.time()
 agent_comms = {"codex", "codex.exe", "codex-cli", "codex-cli.exe", "claude", "claude.exe"}
 by_tty = {}
@@ -421,14 +449,16 @@ for name in os.listdir("/proc"):
             # Newer Codex versions keep their conversation state in the
             # app-server database; a recently touched thread means the TUI is
             # busy even without an exposed rollout file.
-            activity_ms, activity_title = codex_activity(cwd)
+            activity_ms, activity_session_id, activity_title = codex_activity(cwd)
             if now * 1000.0 - activity_ms <= 120000.0:
                 status = "working"
             else:
                 status = "done"
+            session_id = activity_session_id or ("process-%s-%s" % (name, tty.replace("/", "-")))
             title = activity_title or ("Codex terminal " + tty)
             project = project_name(cwd)
             resolved_cwd = cwd
+            placeholder = not bool(activity_session_id)
         item = {
             "session_id": session_id,
             "pid": int(name),
@@ -715,7 +745,11 @@ class LinuxRemoteScanner:
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=5,
+                # An SSH connection can take several seconds before the
+                # remote probe starts (especially with a cold control path).
+                # The probe itself is read-only, so allow that startup time
+                # instead of silently dropping the host at five seconds.
+                timeout=12,
             )
         except (OSError, subprocess.SubprocessError):
             LOG.debug("Could not query remote Codex sessions on %s", host, exc_info=True)

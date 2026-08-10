@@ -46,6 +46,16 @@ class TerminalWindowTests(unittest.TestCase):
             focus_macos_terminal(123)
         self.assertEqual(run.call_args_list[1].args[0][-1], "/dev/ttys004")
 
+    def test_focuses_x11_window_with_xdotool(self) -> None:
+        with patch("cc_indicator.terminal_window.sys.platform", "linux"), patch(
+            "cc_indicator.terminal_window.subprocess.run",
+            return_value=subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+        ) as run:
+            from cc_indicator.terminal_window import focus_x11_window
+
+            focus_x11_window(0x1234)
+        self.assertEqual(run.call_args.args[0], ["xdotool", "windowactivate", "--sync", "0x1234"])
+
     def test_matches_remote_attention_and_local_done_with_same_project(self) -> None:
         remote = SessionView(
             session_id="remote",

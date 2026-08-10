@@ -165,11 +165,17 @@ class SessionService:
 
     def focus(self, session: SessionView) -> None:
         current = session
-        if sys.platform.startswith("linux") and current.window_id is None:
-            current = next(
-                (item for item in self.sessions() if item.session_id == session.session_id),
-                session,
-            )
+        # Window IDs are transient: GNOME Terminal can recreate a window or
+        # change the active tab after the menu was built. Always rematch on
+        # Linux so a click cannot target a stale X11 window.
+        if sys.platform.startswith("linux"):
+            matched = self.windows.match([session]).get(session.session_id)
+            if matched:
+                current = replace(
+                    session,
+                    window_id=matched.window_id,
+                    window_title=matched.title,
+                )
         focus_terminal(pid=current.pid, window_id=current.window_id)
 
     @property
