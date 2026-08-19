@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cc_indicator.metadata import MetadataResolver, clean_title, project_name
+from agent_tray.metadata import MetadataResolver, clean_title, project_name
 
 
 class MetadataTests(unittest.TestCase):
@@ -63,7 +63,7 @@ class MetadataTests(unittest.TestCase):
             home = root / "codex"
             home.mkdir()
             claude_dir = root / "claude"
-            transcript = claude_dir / "projects" / "-home-phi-cc-indicator" / "claude-9.jsonl"
+            transcript = claude_dir / "projects" / "-home-phi-agent-tray" / "claude-9.jsonl"
             transcript.parent.mkdir(parents=True)
             transcript.write_text(
                 "\n".join(
@@ -89,7 +89,7 @@ class MetadataTests(unittest.TestCase):
             home = root / "codex"
             home.mkdir()
             claude_dir = root / "claude"
-            transcript = claude_dir / "projects" / "-home-phi-cc-indicator" / "claude-9.jsonl"
+            transcript = claude_dir / "projects" / "-home-phi-agent-tray" / "claude-9.jsonl"
             transcript.parent.mkdir(parents=True)
             transcript.write_text(
                 "\n".join(
@@ -137,7 +137,7 @@ class MetadataTests(unittest.TestCase):
             home = root / "codex"
             home.mkdir()
             claude_dir = root / "claude"
-            transcript = claude_dir / "projects" / "-home-phi-cc-indicator" / "claude-9.jsonl"
+            transcript = claude_dir / "projects" / "-home-phi-agent-tray" / "claude-9.jsonl"
             transcript.parent.mkdir(parents=True)
             transcript.write_text(
                 json.dumps(

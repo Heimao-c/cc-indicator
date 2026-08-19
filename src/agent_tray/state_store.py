@@ -8,9 +8,9 @@ import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
-from cc_indicator.models import SessionState, SessionStatus, status_for_event
-from cc_indicator.paths import session_state_dir
-from cc_indicator.processes import find_agent_ancestor, pid_is_alive, terminal_identity
+from agent_tray.models import SessionState, SessionStatus, status_for_event
+from agent_tray.paths import session_state_dir
+from agent_tray.processes import find_agent_ancestor, pid_is_alive, terminal_identity
 
 
 SAFE_ID = re.compile(r"[^A-Za-z0-9._-]")
@@ -180,9 +180,12 @@ class StateStore:
     def prune_discovered(self, active_session_ids: set[str]) -> None:
         """Drop snapshots tied to terminals that are no longer live.
 
-        Hook subprocesses can occasionally report the long-lived app-server PID instead of
-        the TUI PID. A terminal identity plus absence from the passive process scan is the
-        reliable closed-window signal in that case.
+        A hook can report a long-lived app-server PID, or no terminal identity at
+        all.  Either value may survive a logout/reboot, and a reused PID is not
+        evidence of a live terminal.  On Linux this method is called only after
+        the passive scanner has enumerated every live Codex/Claude TTY, so an
+        unmatched local hook snapshot is a closed terminal and must not remain
+        as a ghost entry in the tray.
         """
         for path in self.root.glob("*.json"):
             try:
@@ -192,11 +195,7 @@ class StateStore:
             if state.session_id in active_session_ids:
                 continue
             passive_snapshot = state.event in {"PassiveDiscovery", "RemoteDiscovery"}
-            inactive_local_hook = (
-                not state.source_host
-                and state.terminal_id is not None
-                and state.event not in {"PassiveDiscovery", "RemoteDiscovery"}
-            )
+            inactive_local_hook = not state.source_host and not passive_snapshot
             if not passive_snapshot and not inactive_local_hook:
                 continue
             try:

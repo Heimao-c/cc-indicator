@@ -11,11 +11,11 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from cc_indicator.paths import claude_home, codex_home
+from agent_tray.paths import claude_home, codex_home
 
 
-HOOK_ARGUMENT = "--cc-indicator-hook"
-HOOK_STATUS_MESSAGE = "CC Indicator: update local session status"
+HOOK_ARGUMENT = "--agent-tray-hook"
+HOOK_STATUS_MESSAGE = "AgentTray: update local session status"
 EVENTS = (
     "SessionStart",
     "UserPromptSubmit",
@@ -103,7 +103,7 @@ def set_claude_bypass(enabled: bool, claude_dir: Path | None = None) -> bool:
 def _frozen_hook_helper() -> Path | None:
     executable = Path(sys.executable).resolve()
     suffix = ".exe" if sys.platform == "win32" else ""
-    helper_names = [f"CCIndicatorHook{suffix}", f"CCIndicatorHook{suffix}"]
+    helper_names = [f"AgentTrayHook{suffix}"]
     candidates = [executable.with_name(name) for name in helper_names]
     for ancestor in list(executable.parents)[:5]:
         for name in helper_names:
@@ -114,13 +114,13 @@ def _frozen_hook_helper() -> Path | None:
 def application_argv() -> list[str]:
     if getattr(sys, "frozen", False):
         return [str(Path(sys.executable).resolve())]
-    configured = os.environ.get("CC_INDICATOR_LAUNCHER")
+    configured = os.environ.get("AGENT_TRAY_LAUNCHER")
     if configured and Path(configured).expanduser().is_file():
         return [str(Path(configured).expanduser().resolve())]
-    found = shutil.which("cc-indicator")
+    found = shutil.which("agent-tray")
     if found:
         return [str(Path(found).resolve())]
-    return [sys.executable, "-m", "cc_indicator"]
+    return [sys.executable, "-m", "agent_tray"]
 
 
 def hook_argv() -> list[str]:
@@ -137,9 +137,17 @@ def command_string(arguments: list[str] | None = None) -> str:
 
 
 def _is_ours(handler: Any) -> bool:
-    return isinstance(handler, dict) and (
-        HOOK_ARGUMENT in str(handler.get("command", ""))
-        or handler.get("statusMessage") == HOOK_STATUS_MESSAGE
+    if not isinstance(handler, dict):
+        return False
+    command = str(handler.get("command", ""))
+    message = str(handler.get("statusMessage", ""))
+    return (
+        HOOK_ARGUMENT in command
+        or message == HOOK_STATUS_MESSAGE
+        # Earlier releases used the same unique lifecycle message under a
+        # different product name.  Removing it here prevents duplicate hooks
+        # when an existing installation is upgraded.
+        or (message.endswith(": update local session status") and "indicator" in message.lower())
     )
 
 
@@ -223,9 +231,9 @@ def _install_into(
         return path
     if original is not None:
         stamp = time.strftime("%Y%m%d-%H%M%S")
-        backup = path.with_name(f"{filename}.cc-indicator-{stamp}.bak")
+        backup = path.with_name(f"{filename}.agent-tray-{stamp}.bak")
         if backup.exists():
-            backup = path.with_name(f"{filename}.cc-indicator-{stamp}-{os.getpid()}.bak")
+            backup = path.with_name(f"{filename}.agent-tray-{stamp}-{os.getpid()}.bak")
         backup.write_bytes(original)
     _atomic_write(path, document)
     return path

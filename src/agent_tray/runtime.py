@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import IO
 
-from cc_indicator.paths import app_log_path, lock_path
+from agent_tray.paths import app_log_path, lock_path
 
 
 def configure_logging(path: Path | None = None) -> None:
@@ -77,7 +77,7 @@ class InstanceLock:
 
     def __enter__(self) -> "InstanceLock":
         if not self.acquire():
-            raise RuntimeError("CC Indicator is already running")
+            raise RuntimeError("AgentTray is already running")
         return self
 
     def __exit__(self, *_args: object) -> None:

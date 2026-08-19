@@ -8,7 +8,7 @@ import threading
 import time
 from typing import Any
 
-from cc_indicator import __version__
+from agent_tray import __version__
 
 
 class CodexControlError(RuntimeError):
@@ -93,8 +93,8 @@ class CodexAppServerClient:
                     "id": 1,
                     "params": {
                         "clientInfo": {
-                            "name": "cc_indicator",
-                            "title": "CC Indicator",
+                            "name": "agent_tray",
+                            "title": "AgentTray",
                             "version": __version__,
                         }
                     },

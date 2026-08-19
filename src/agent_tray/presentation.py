@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import html
 
-from cc_indicator.i18n import COLOR_SYMBOLS, STATUS_COLORS, SYMBOLS, status_text, text
-from cc_indicator.models import SessionStatus
-from cc_indicator.service import SessionView
+from agent_tray.i18n import COLOR_SYMBOLS, STATUS_COLORS, SYMBOLS, status_text, text
+from agent_tray.models import SessionStatus
+from agent_tray.service import SessionView
 
 
 TOOL_COLORS = {

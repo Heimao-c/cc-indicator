@@ -1,4 +1,4 @@
-from cc_indicator.cli import main
+from agent_tray.cli import main
 
 
 if __name__ == "__main__":

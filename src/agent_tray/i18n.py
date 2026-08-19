@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import locale
 
-from cc_indicator.models import SessionStatus
+from agent_tray.models import SessionStatus
 
 
 def is_chinese() -> bool:
@@ -23,7 +23,7 @@ ZH = {
     "autostart": "开机自动启动",
     "refresh": "立即刷新",
     "quit": "退出",
-    "about": "CC Indicator",
+    "about": "AgentTray",
     "header": "点击对话跳转终端 · 状态 · [工具] 项目 — 名称",
     "summary": "共 {total} 个会话 · Codex {codex} · Claude {claude}",
     "local": "本机",
@@ -79,7 +79,7 @@ EN = {
     "autostart": "Start at login",
     "refresh": "Refresh now",
     "quit": "Quit",
-    "about": "CC Indicator",
+    "about": "AgentTray",
     "header": "Click a conversation to focus · status · [tool] project — name",
     "summary": "{total} sessions · Codex {codex} · Claude {claude}",
     "local": "Local",

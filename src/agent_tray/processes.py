@@ -15,9 +15,9 @@ def _looks_like_agent(name: str, command: str) -> bool:
     name = name.lower().strip()
     command = command.lower()
     if (
-        "cc-indicator" in name
+        "agent-tray" in name
         or "codexindicator" in name
-        or "cc-indicator" in command
+        or "agent-tray" in command
         or "codexindicator" in command
     ):
         return False

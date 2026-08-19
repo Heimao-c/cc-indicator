@@ -10,11 +10,11 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from cc_indicator.models import SessionStatus
+from agent_tray.models import SessionStatus
 
 
 if TYPE_CHECKING:
-    from cc_indicator.service import SessionView
+    from agent_tray.service import SessionView
 
 
 LOG = logging.getLogger(__name__)

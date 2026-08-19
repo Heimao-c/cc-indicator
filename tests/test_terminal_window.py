@@ -2,9 +2,9 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from cc_indicator.models import SessionStatus
-from cc_indicator.service import SessionView
-from cc_indicator.terminal_window import (
+from agent_tray.models import SessionStatus
+from agent_tray.service import SessionView
+from agent_tray.terminal_window import (
     TerminalApprovalController,
     TerminalWindow,
     TerminalWindowResolver,
@@ -45,21 +45,21 @@ class TerminalWindowTests(unittest.TestCase):
             subprocess.CompletedProcess([], 0, stdout="ttys004\n", stderr=""),
             subprocess.CompletedProcess([], 0, stdout="focused\n", stderr=""),
         ]
-        with patch("cc_indicator.terminal_window.sys.platform", "darwin"), patch(
-            "cc_indicator.terminal_window.subprocess.run", side_effect=responses
+        with patch("agent_tray.terminal_window.sys.platform", "darwin"), patch(
+            "agent_tray.terminal_window.subprocess.run", side_effect=responses
         ) as run:
             focus_macos_terminal(123)
         self.assertEqual(run.call_args_list[1].args[0][-1], "/dev/ttys004")
 
     def test_focuses_x11_window_with_xdotool(self) -> None:
-        with patch("cc_indicator.terminal_window.sys.platform", "linux"), patch(
-            "cc_indicator.terminal_window.subprocess.run",
+        with patch("agent_tray.terminal_window.sys.platform", "linux"), patch(
+            "agent_tray.terminal_window.subprocess.run",
             return_value=subprocess.CompletedProcess([], 0, stdout="", stderr=""),
         ) as run, patch(
-            "cc_indicator.terminal_window.active_x11_window",
+            "agent_tray.terminal_window.active_x11_window",
             return_value=0x1234,
         ):
-            from cc_indicator.terminal_window import focus_x11_window
+            from agent_tray.terminal_window import focus_x11_window
 
             focus_x11_window(0x1234)
         self.assertEqual(run.call_args.args[0], ["xdotool", "windowactivate", "--sync", "0x1234"])

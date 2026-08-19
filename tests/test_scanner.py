@@ -7,9 +7,9 @@ import time
 import unittest
 from pathlib import Path
 
-from cc_indicator.models import SessionState, SessionStatus
-from cc_indicator.scanner import LinuxSessionScanner, PassiveScanner
-from cc_indicator.state_store import StateStore
+from agent_tray.models import SessionState, SessionStatus
+from agent_tray.scanner import LinuxSessionScanner, PassiveScanner
+from agent_tray.state_store import StateStore
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "requires Linux /proc semantics")
@@ -313,7 +313,7 @@ class LinuxScannerTests(unittest.TestCase):
             workspace = root / "workspace"
             self._make_agent_process(root, 1234, "claude", "42", workspace)
             claude_dir = root / "claude-home"
-            transcript = claude_dir / "projects" / "-home-phi-cc-indicator" / f"{session_id}.jsonl"
+            transcript = claude_dir / "projects" / "-home-phi-agent-tray" / f"{session_id}.jsonl"
             transcript.parent.mkdir(parents=True)
             now = time.time()
             transcript.write_text(
@@ -348,7 +348,7 @@ class LinuxScannerTests(unittest.TestCase):
             workspace = root / "workspace"
             self._make_agent_process(root, 1234, "claude", "45", workspace)
             claude_dir = root / "claude-home"
-            project = claude_dir / "projects" / "-home-phi-cc-indicator"
+            project = claude_dir / "projects" / "-home-phi-agent-tray"
             project.mkdir(parents=True)
             now = time.time()
             stale = project / "11111111-1111-4111-8111-111111111111.jsonl"
@@ -384,7 +384,7 @@ class LinuxScannerTests(unittest.TestCase):
             self._make_agent_process(root, 1234, "claude", "46", workspace)
             self._make_agent_process(root, 1235, "claude", "47", workspace)
             claude_dir = root / "claude-home"
-            project = claude_dir / "projects" / "-home-phi-cc-indicator"
+            project = claude_dir / "projects" / "-home-phi-agent-tray"
             project.mkdir(parents=True)
             now = time.time()
             for session_id, offset in (
@@ -429,7 +429,7 @@ class LinuxScannerTests(unittest.TestCase):
             workspace = root / "workspace"
             workspace.mkdir()
             claude_dir = root / "claude-home"
-            project = claude_dir / "projects" / "-home-phi-cc-indicator"
+            project = claude_dir / "projects" / "-home-phi-agent-tray"
             for directory in ("subagents", "tool-results"):
                 (project / directory).mkdir(parents=True)
                 (project / directory / "019fcc04-9328-70f2-a3e7-362473724c0d.jsonl").write_text(
@@ -472,7 +472,7 @@ class LinuxScannerTests(unittest.TestCase):
             self.assertEqual(state.tool, "claude")
             self.assertTrue(state.manageable)
 
-    def test_codex_hook_state_does_not_bind_to_claude_placeholder(self) -> None:
+    def test_codex_hook_state_does_not_bind_to_claude_placeholder_or_linger(self) -> None:
         session_id = "019fcc04-9328-70f2-a3e7-362473724c0d"
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -497,17 +497,84 @@ class LinuxScannerTests(unittest.TestCase):
             # The claude placeholder stays a placeholder (no binding), and the
             # codex hook session keeps its own identity: both are visible.
             states = {state.session_id: state for state in store.list_states()}
-            self.assertEqual(len(states), 2)
+            self.assertEqual(len(states), 1)
             placeholder = states[f"process-{os.getpid()}-pts-44"]
             self.assertEqual(placeholder.tool, "claude")
             self.assertFalse(placeholder.manageable)
-            codex_state = states[session_id]
-            self.assertEqual(codex_state.tool, "codex")
-            self.assertEqual(codex_state.status, SessionStatus.WORKING)
+            self.assertNotIn(session_id, states)
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "requires Linux /proc semantics")
 class PassiveScannerTests(unittest.TestCase):
+    def test_boot_with_no_ssh_connection_drops_cached_remote_session(self) -> None:
+        class RemoteScanner:
+            def connections(self):
+                return []
+
+            def discover(self, force: bool = False):
+                return []
+
+            def claude_bypass_state(self):
+                return {}
+
+            def set_claude_allow_all(self, _enabled: bool):
+                return 0
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = StateStore(root / "state")
+            store.write(
+                SessionState(
+                    session_id="ssh:old-host:old-session",
+                    status=SessionStatus.DONE,
+                    cwd="/workspace",
+                    event="RemoteDiscovery",
+                    updated_at=time.time(),
+                    pid=1234,
+                    terminal_id="SSH:/dev/pts/8:old-host:pts/1",
+                    thread_id="old-session",
+                    source_host="old-host",
+                )
+            )
+            scanner = PassiveScanner(interval_seconds=0)
+            scanner._scanner = LinuxSessionScanner(root / "proc")
+            scanner._remote = RemoteScanner()
+            scanner.reconcile(store)
+            self.assertEqual(store.list_states(), [])
+            assert scanner._remote_thread is not None
+            scanner._remote_thread.join(1)
+
+    def test_boot_with_live_ssh_connection_keeps_cached_snapshot_during_probe(self) -> None:
+        class LocalScanner:
+            def __init__(self) -> None:
+                self.preserve_remote = None
+
+            def reconcile(self, _store, **kwargs):
+                self.preserve_remote = kwargs["preserve_remote"]
+
+        class RemoteScanner:
+            def connections(self):
+                return [object()]
+
+            def discover(self, force: bool = False):
+                return []
+
+            def claude_bypass_state(self):
+                return {}
+
+            def set_claude_allow_all(self, _enabled: bool):
+                return 0
+
+        scanner = PassiveScanner(interval_seconds=0)
+        local = LocalScanner()
+        scanner._scanner = local
+        scanner._remote = RemoteScanner()
+        with tempfile.TemporaryDirectory() as temp:
+            scanner.reconcile(StateStore(Path(temp) / "state"))
+        self.assertTrue(local.preserve_remote)
+        assert scanner._remote_thread is not None
+        scanner._remote_thread.join(1)
+
     def test_remote_probe_does_not_block_local_reconcile(self) -> None:
         started = threading.Event()
         release = threading.Event()
@@ -517,6 +584,9 @@ class PassiveScannerTests(unittest.TestCase):
                 return None
 
         class RemoteScanner:
+            def connections(self):
+                return []
+
             def discover(self, force: bool = False):
                 self.force = force
                 started.set()

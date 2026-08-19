@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cc_indicator.models import SessionState, SessionStatus
-from cc_indicator.state_store import StateStore
+from agent_tray.models import SessionState, SessionStatus
+from agent_tray.state_store import StateStore
 
 
 class StateStoreTests(unittest.TestCase):
@@ -56,7 +56,7 @@ class StateStoreTests(unittest.TestCase):
                     "session_id": "claude-1",
                     "hook_event_name": "UserPromptSubmit",
                     "cwd": "/workspace",
-                    "transcript_path": "/home/user/.claude/projects/-home-phi-cc-indicator/claude-1.jsonl",
+                    "transcript_path": "/home/user/.claude/projects/-home-phi-agent-tray/claude-1.jsonl",
                 },
                 pid=os.getpid(),
                 now=100.0,
@@ -128,7 +128,7 @@ class StateStoreTests(unittest.TestCase):
             self.assertIsNone(store.record_hook({"hook_event_name": "Stop"}))
             self.assertEqual(store.list_states(), [])
 
-    def test_prunes_stale_discovery_and_closed_hook_terminal(self) -> None:
+    def test_prunes_stale_discovery_and_all_unmatched_local_hooks(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = StateStore(Path(temp))
             for session_id, event, terminal_id in (
@@ -150,7 +150,7 @@ class StateStoreTests(unittest.TestCase):
                 )
             store.prune_discovered({"active"})
             ids = {state.session_id for state in store.list_states()}
-            self.assertEqual(ids, {"active", "headless-hook"})
+            self.assertEqual(ids, {"active"})
 
 
 if __name__ == "__main__":

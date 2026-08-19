@@ -1,8 +1,8 @@
 import unittest
 
-from cc_indicator.models import SessionStatus
-from cc_indicator.presentation import session_row, session_row_markup, shorten, summary_text
-from cc_indicator.service import SessionView
+from agent_tray.models import SessionStatus
+from agent_tray.presentation import session_row, session_row_markup, shorten, summary_text
+from agent_tray.service import SessionView
 
 
 class PresentationTests(unittest.TestCase):

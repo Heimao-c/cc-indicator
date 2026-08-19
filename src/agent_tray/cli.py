@@ -6,11 +6,11 @@ import logging
 import logging.handlers
 import sys
 
-from cc_indicator import __version__, autostart, hooks
-from cc_indicator.app import run as run_app
-from cc_indicator.paths import hook_log_path
-from cc_indicator.service import SessionService
-from cc_indicator.state_store import StateStore
+from agent_tray import __version__, autostart, hooks
+from agent_tray.app import run as run_app
+from agent_tray.paths import hook_log_path
+from agent_tray.service import SessionService
+from agent_tray.state_store import StateStore
 
 
 def _hook_logging() -> None:
@@ -75,7 +75,7 @@ def doctor() -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="CC Indicator: tray status for Codex CLI and Claude Code CLI sessions")
+    parser = argparse.ArgumentParser(description="AgentTray: tray status for Codex CLI and Claude Code CLI sessions")
     parser.add_argument("--version", action="version", version=__version__)
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument(hooks.HOOK_ARGUMENT, action="store_true", dest="hook")

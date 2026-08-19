@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from cc_indicator.models import SessionStatus
+from agent_tray.models import SessionStatus
 
 
 LOG = logging.getLogger(__name__)
@@ -20,6 +20,7 @@ LOG = logging.getLogger(__name__)
 # it inspects live Codex/Claude TTYs, their open rollout/transcript files, and the
 # public thread metadata.
 REMOTE_PROBE = r'''
+# AGENT_TRAY_REMOTE_PROBE
 import json
 import os
 import re
@@ -491,6 +492,7 @@ print(json.dumps({"sessions": list(by_tty.values()), "claude": claude_info}, ens
 # permissions.defaultMode=bypassPermissions in the remote Claude Code settings,
 # preserving everything else. It only ever touches that one key.
 REMOTE_CLAUDE_TOGGLE = r'''
+# AGENT_TRAY_REMOTE_TOGGLE
 import json
 import os
 import sys
@@ -712,6 +714,12 @@ class LinuxRemoteScanner:
                 tty = raw_tty if raw_tty.startswith("/dev/pts/") else "unknown"
                 argv = [part.decode("utf-8", "replace") for part in (root / "cmdline").read_bytes().split(b"\0") if part]
             except OSError:
+                continue
+            # The indicator invokes ssh itself for read-only remote probes and
+            # for the Claude settings toggle.  Those short-lived child
+            # processes are transport, not user terminals; treating them as a
+            # connection can resurrect a cached remote session after boot.
+            if any("AGENT_TRAY_REMOTE_" in argument for argument in argv):
                 continue
             host = ssh_target(argv)
             if not host:

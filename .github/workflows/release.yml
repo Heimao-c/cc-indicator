@@ -20,18 +20,18 @@ jobs:
       - name: Build tray and hook executables
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --clean --windowed --onedir --name CCIndicator --paths src --collect-submodules pystray --add-data "src/cc_indicator/assets;cc_indicator/assets" src/cc_indicator/__main__.py
-          pyinstaller --noconfirm --clean --console --onedir --name CCIndicatorHook --paths src --collect-submodules pystray --add-data "src/cc_indicator/assets;cc_indicator/assets" src/cc_indicator/__main__.py
-          if (-not (Test-Path dist/CCIndicator/CCIndicator.exe)) { throw "Tray executable was not built" }
-          & dist/CCIndicatorHook/CCIndicatorHook.exe --version
+          pyinstaller --noconfirm --clean --windowed --onedir --name AgentTray --paths src --collect-submodules pystray --add-data "src/agent_tray/assets;agent_tray/assets" src/agent_tray/__main__.py
+          pyinstaller --noconfirm --clean --console --onedir --name AgentTrayHook --paths src --collect-submodules pystray --add-data "src/agent_tray/assets;agent_tray/assets" src/agent_tray/__main__.py
+          if (-not (Test-Path dist/AgentTray/AgentTray.exe)) { throw "Tray executable was not built" }
+          & dist/AgentTrayHook/AgentTrayHook.exe --version
           New-Item -ItemType Directory -Path bundle
-          Move-Item dist/CCIndicator bundle/CCIndicator
-          Move-Item dist/CCIndicatorHook bundle/CCIndicatorHook
-          Compress-Archive -Path bundle/* -DestinationPath cc-indicator-windows-x64.zip
+          Move-Item dist/AgentTray bundle/AgentTray
+          Move-Item dist/AgentTrayHook bundle/AgentTrayHook
+          Compress-Archive -Path bundle/* -DestinationPath agent-tray-windows-x64.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: cc-indicator-windows-x64
-          path: cc-indicator-windows-x64.zip
+          name: agent-tray-windows-x64
+          path: agent-tray-windows-x64.zip
 
   build-macos:
     strategy:
@@ -51,18 +51,18 @@ jobs:
       - run: python -m pip install ".[build]"
       - name: Build menu-bar app and hook executable
         run: |
-          pyinstaller --noconfirm --clean --windowed --onedir --name CCIndicator --paths src --collect-submodules pystray --add-data "src/cc_indicator/assets:cc_indicator/assets" src/cc_indicator/__main__.py
-          pyinstaller --noconfirm --clean --console --onedir --name CCIndicatorHook --paths src --collect-submodules pystray --add-data "src/cc_indicator/assets:cc_indicator/assets" src/cc_indicator/__main__.py
-          test -d dist/CCIndicator.app
-          dist/CCIndicatorHook/CCIndicatorHook --version
+          pyinstaller --noconfirm --clean --windowed --onedir --name AgentTray --paths src --collect-submodules pystray --add-data "src/agent_tray/assets:agent_tray/assets" src/agent_tray/__main__.py
+          pyinstaller --noconfirm --clean --console --onedir --name AgentTrayHook --paths src --collect-submodules pystray --add-data "src/agent_tray/assets:agent_tray/assets" src/agent_tray/__main__.py
+          test -d dist/AgentTray.app
+          dist/AgentTrayHook/AgentTrayHook --version
           mkdir bundle
-          mv dist/CCIndicator.app bundle/
-          mv dist/CCIndicatorHook bundle/
-          ditto -c -k --sequesterRsrc --keepParent bundle cc-indicator-macos-${{ matrix.architecture }}.zip
+          mv dist/AgentTray.app bundle/
+          mv dist/AgentTrayHook bundle/
+          ditto -c -k --sequesterRsrc --keepParent bundle agent-tray-macos-${{ matrix.architecture }}.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: cc-indicator-macos-${{ matrix.architecture }}
-          path: cc-indicator-macos-${{ matrix.architecture }}.zip
+          name: agent-tray-macos-${{ matrix.architecture }}
+          path: agent-tray-macos-${{ matrix.architecture }}.zip
 
   build-ubuntu:
     runs-on: ubuntu-22.04
@@ -72,7 +72,7 @@ jobs:
         run: sh scripts/build-deb.sh "${GITHUB_REF_NAME#v}" amd64
       - uses: actions/upload-artifact@v4
         with:
-          name: cc-indicator-ubuntu-amd64
+          name: agent-tray-ubuntu-amd64
           path: dist/*.deb
 
   publish:
@@ -81,7 +81,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: cc-indicator-*
+          pattern: agent-tray-*
           path: release
           merge-multiple: true
       - uses: softprops/action-gh-release@v2

@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cc_indicator.models import SessionStatus
-from cc_indicator.remote import (
+from agent_tray.models import SessionStatus
+from agent_tray.remote import (
     LinuxRemoteScanner,
     REMOTE_CLAUDE_TOGGLE,
     RemoteSession,
@@ -17,6 +17,17 @@ from cc_indicator.remote import (
 
 
 class RemoteScannerTests(unittest.TestCase):
+    def test_ignores_its_own_probe_ssh_process(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            process = root / "1234"
+            (process / "fd").mkdir(parents=True)
+            (process / "comm").write_text("ssh\n", encoding="utf-8")
+            (process / "fd" / "0").symlink_to("/dev/null")
+            command = b"ssh\0-T\0robot\0python3 -c '# AGENT_TRAY_REMOTE_PROBE'\0"
+            (process / "cmdline").write_bytes(command)
+            self.assertEqual(LinuxRemoteScanner(root).connections(), [])
+
     def test_claude_toggle_targets_only_hosts_with_claude_settings(self) -> None:
         scanner = LinuxRemoteScanner()
         scanner._claude_info = {

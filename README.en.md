@@ -1,10 +1,10 @@
-# CC Indicator
+# AgentTray
 
 [English](README.en.md) · [中文](README.md)
 
 A small system-tray monitor for seeing multiple Codex CLI and Claude Code CLI terminals at a glance.
 
-![CC Indicator running](docs/cc-indicator-menu.png)
+![AgentTray running](docs/agent-tray-menu.png)
 
 ## What you see
 
@@ -25,13 +25,13 @@ It does not mirror full transcripts, create worktrees, require tmux/Docker/Elect
 
 ## Install
 
-Download a platform package from [Releases](https://github.com/Heimao-c/cc-indicator/releases).
+Download a platform package from [Releases](https://github.com/Heimao-c/agent-tray/releases).
 
 For a user-level Ubuntu install from source:
 
 ```bash
-git clone https://github.com/Heimao-c/cc-indicator.git
-cd cc-indicator
+git clone https://github.com/Heimao-c/agent-tray.git
+cd agent-tray
 sh scripts/install-linux.sh
 ```
 
@@ -57,7 +57,7 @@ Legacy `idle` cache entries are migrated to `done` automatically.
 
 ## Privacy and permissions
 
-CC Indicator has no service of its own and does not upload source files, prompts, responses, API keys, or Codex credentials. Its cache contains only session IDs, state, directories, timestamps, process/terminal identifiers, and the minimum title/project metadata needed for the menu.
+AgentTray has no service of its own and does not upload source files, prompts, responses, API keys, or Codex credentials. Its cache contains only session IDs, state, directories, timestamps, process/terminal identifiers, and the minimum title/project metadata needed for the menu.
 
 On Ubuntu, bulk approval reads the visible terminal screen only to verify a Codex approval pane and sends one confirmation key. Ordinary approvals are handled directly; destructive operations such as wiping disks or recursive system-directory deletion still require a separate confirmation. Screens are not saved.
 
@@ -66,10 +66,10 @@ SSH discovery uses existing local SSH processes and read-only probes; it does no
 ## CLI and development
 
 ```bash
-cc-indicator --install-hooks
-cc-indicator --install-autostart
-cc-indicator --dump-status
-cc-indicator --doctor
+agent-tray --install-hooks
+agent-tray --install-autostart
+agent-tray --dump-status
+agent-tray --doctor
 ```
 
 `--dump-status` includes a `tool` field for every session, making it easy to verify local and SSH identification.

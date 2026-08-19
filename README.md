@@ -1,10 +1,10 @@
-# CC Indicator
+# AgentTray
 
 [中文](README.md) · [English](README.en.md)
 
 一个轻量的系统托盘工具，用来一眼查看多个 Codex CLI / Claude Code CLI 终端。
 
-![CC Indicator 实际运行截图](docs/cc-indicator-menu.png)
+![AgentTray 实际运行截图](docs/agent-tray-menu.png)
 
 ## 你能看到什么
 
@@ -25,13 +25,13 @@
 
 ## 安装
 
-从 [Releases](https://github.com/Heimao-c/cc-indicator/releases) 下载对应平台的发布包。
+从 [Releases](https://github.com/Heimao-c/agent-tray/releases) 下载对应平台的发布包。
 
 Ubuntu 也可以进行用户级安装：
 
 ```bash
-git clone https://github.com/Heimao-c/cc-indicator.git
-cd cc-indicator
+git clone https://github.com/Heimao-c/agent-tray.git
+cd agent-tray
 sh scripts/install-linux.sh
 ```
 
@@ -43,7 +43,7 @@ sudo apt install python3-gi gir1.2-gtk-3.0 \
   libayatana-appindicator3-1 libx11-6 libxtst6 x11-utils
 ```
 
-Windows 解压发布包后运行 `CCIndicator/CCIndicator.exe`。macOS 解压后将 `.app` 和 `CCIndicatorHook` 放在同一目录，再启动 `.app`。
+Windows 解压发布包后运行 `AgentTray/AgentTray.exe`。macOS 解压后将 `.app` 和 `AgentTrayHook` 放在同一目录，再启动 `.app`。
 
 首次运行后，从托盘菜单安装 Codex + Claude Hooks：Codex 的 Hook 写入 `~/.codex/hooks.json`，Claude Code 的 Hook 写入 `~/.claude/settings.json`（保留你已有的配置，Claude Code 会自动热加载）。在 Codex CLI 中打开 `/hooks`，确认并信任指向本机的 Hook；未信任时，工具只能显示被动扫描到的部分状态。
 
@@ -67,7 +67,7 @@ Windows 解压发布包后运行 `CCIndicator/CCIndicator.exe`。macOS 解压后
 
 ## 隐私与权限
 
-CC Indicator 不连接自己的服务器，不上传项目文件、提示词、回复、API Key 或 Codex 凭据。缓存只保存会话 ID、状态、目录、时间、进程/终端标识以及必要的标题和项目摘要。
+AgentTray 不连接自己的服务器，不上传项目文件、提示词、回复、API Key 或 Codex 凭据。缓存只保存会话 ID、状态、目录、时间、进程/终端标识以及必要的标题和项目摘要。
 
 Ubuntu 的批量允许功能会读取当前终端画面，只在确认是 Codex 的批准界面时发送一次确认键；普通审批直接处理，整盘清除、系统目录递归删除等高危操作仍会单独询问。画面不会保存。
 
@@ -76,10 +76,10 @@ SSH 识别使用本机已有的 SSH 进程和只读探测，不保存私钥或�
 ## 命令行与开发
 
 ```bash
-cc-indicator --install-hooks
-cc-indicator --install-autostart
-cc-indicator --dump-status
-cc-indicator --doctor
+agent-tray --install-hooks
+agent-tray --install-autostart
+agent-tray --dump-status
+agent-tray --doctor
 ```
 
 `--dump-status` 输出中会包含每个会话的 `tool` 字段，便于检查本机和 SSH 会话是否被正确识别。

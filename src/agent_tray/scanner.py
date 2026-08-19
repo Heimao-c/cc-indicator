@@ -10,10 +10,10 @@ import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from cc_indicator.models import SessionState, SessionStatus
-from cc_indicator.paths import claude_home
-from cc_indicator.remote import LinuxRemoteScanner, RemoteSession
-from cc_indicator.state_store import StateStore
+from agent_tray.models import SessionState, SessionStatus
+from agent_tray.paths import claude_home
+from agent_tray.remote import LinuxRemoteScanner, RemoteSession
+from agent_tray.state_store import StateStore
 
 
 LOG = logging.getLogger(__name__)
@@ -577,6 +577,8 @@ class PassiveScanner:
         self._scanner = LinuxSessionScanner() if sys.platform == "linux" else None
         self._remote = LinuxRemoteScanner() if sys.platform == "linux" else None
         self._remote_sessions: list[RemoteSession] | None = None
+        self._remote_connection_known = False
+        self._remote_connection_present = False
         self._remote_claude_state: dict[str, bool] = {}
         self._remote_thread: threading.Thread | None = None
         self._remote_lock = threading.Lock()
@@ -585,8 +587,10 @@ class PassiveScanner:
     def _refresh_remote(self) -> None:
         if not self._remote:
             return
+        connections = []
         try:
             with self._remote_call_lock:
+                connections = self._remote.connections()
                 sessions = self._remote.discover(force=True)
                 claude_state = self._remote.claude_bypass_state()
         except Exception:
@@ -596,6 +600,8 @@ class PassiveScanner:
         with self._remote_lock:
             self._remote_sessions = sessions
             self._remote_claude_state = claude_state
+            self._remote_connection_known = True
+            self._remote_connection_present = bool(connections)
 
     def reconcile(self, store: StateStore) -> None:
         if not self._scanner:
@@ -606,17 +612,31 @@ class PassiveScanner:
         self._last_scan = now
         with self._remote_lock:
             remote_sessions = self._remote_sessions
+            remote_connection_known = self._remote_connection_known
+            remote_connection_present = self._remote_connection_present
+        if self._remote and not remote_connection_known:
+            # This reads only /proc and is intentionally synchronous: at boot
+            # it lets us discard stale SSH snapshots before the first network
+            # probe returns, while remote I/O remains on the background thread.
+            try:
+                remote_connection_present = bool(self._remote.connections())
+            except Exception:
+                LOG.debug("Could not inspect local SSH connections", exc_info=True)
+                remote_connection_present = False
+            with self._remote_lock:
+                self._remote_connection_known = True
+                self._remote_connection_present = remote_connection_present
         self._scanner.reconcile(
             store,
             remote_sessions=remote_sessions,
-            preserve_remote=remote_sessions is None,
+            preserve_remote=remote_sessions is None and remote_connection_present,
         )
         if self._remote and (
             self._remote_thread is None or not self._remote_thread.is_alive()
         ):
             self._remote_thread = threading.Thread(
                 target=self._refresh_remote,
-                name="cc-indicator-ssh-scan",
+                name="agent-tray-ssh-scan",
                 daemon=True,
             )
             self._remote_thread.start()

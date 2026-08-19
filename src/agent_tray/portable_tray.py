@@ -4,11 +4,11 @@ import logging
 import threading
 from typing import Any
 
-from cc_indicator import __version__, autostart, hooks
-from cc_indicator.i18n import text
-from cc_indicator.models import SessionStatus
-from cc_indicator.presentation import session_row, shorten, status_summary, summary_text, tool_label, tool_summary
-from cc_indicator.service import SessionService, SessionView
+from agent_tray import __version__, autostart, hooks
+from agent_tray.i18n import text
+from agent_tray.models import SessionStatus
+from agent_tray.presentation import session_row, shorten, status_summary, summary_text, tool_label, tool_summary
+from agent_tray.service import SessionService, SessionView
 
 
 LOG = logging.getLogger(__name__)
@@ -25,9 +25,9 @@ class PortableTrayApp:
         self.Image = Image
         self.ImageDraw = ImageDraw
         self.service = service or SessionService()
-        self.icon = pystray.Icon("cc-indicator")
+        self.icon = pystray.Icon("agent-tray")
         self.icon.icon = self._image("neutral")
-        self.icon.title = "CC Indicator"
+        self.icon.title = "AgentTray"
         self.icon.menu = self._menu([])
         self._stop = threading.Event()
         self._fingerprint: tuple[tuple[object, ...], ...] | None = None

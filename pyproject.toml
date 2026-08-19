@@ -3,8 +3,8 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cc-indicator"
-version = "0.4.2"
+name = "agent-tray"
+version = "1.0.0"
 description = "Minimal system-tray manager for local and SSH Codex CLI and Claude Code CLI sessions"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,15 +37,15 @@ build = [
 ]
 
 [project.scripts]
-cc-indicator = "cc_indicator.cli:main"
+agent-tray = "agent_tray.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/Heimao-c/cc-indicator"
-Issues = "https://github.com/Heimao-c/cc-indicator/issues"
-Source = "https://github.com/Heimao-c/cc-indicator"
+Homepage = "https://github.com/Heimao-c/agent-tray"
+Issues = "https://github.com/Heimao-c/agent-tray/issues"
+Source = "https://github.com/Heimao-c/agent-tray"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-cc_indicator = ["assets/*.svg"]
+agent_tray = ["assets/*.svg"]

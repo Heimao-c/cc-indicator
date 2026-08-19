@@ -3,15 +3,15 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass, replace
 
-from cc_indicator import hooks
-from cc_indicator.codex_control import CodexAppServerClient
-from cc_indicator.i18n import text
-from cc_indicator.metadata import MetadataResolver
-from cc_indicator.models import STATUS_ORDER, SessionStatus
-from cc_indicator.scanner import PassiveScanner
-from cc_indicator.state_store import StateStore
-from cc_indicator.terminal import launch_claude, launch_codex
-from cc_indicator.terminal_window import (
+from agent_tray import hooks
+from agent_tray.codex_control import CodexAppServerClient
+from agent_tray.i18n import text
+from agent_tray.metadata import MetadataResolver
+from agent_tray.models import STATUS_ORDER, SessionStatus
+from agent_tray.scanner import PassiveScanner
+from agent_tray.state_store import StateStore
+from agent_tray.terminal import launch_claude, launch_codex
+from agent_tray.terminal_window import (
     ApprovalBatchResult,
     TerminalApprovalController,
     TerminalWindowResolver,

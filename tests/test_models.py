@@ -1,6 +1,6 @@
 import unittest
 
-from cc_indicator.models import SessionStatus, status_for_event
+from agent_tray.models import SessionStatus, status_for_event
 
 
 class EventStatusTests(unittest.TestCase):

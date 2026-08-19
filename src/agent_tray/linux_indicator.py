@@ -4,12 +4,12 @@ import logging
 from importlib.resources import as_file, files
 from typing import Callable
 
-from cc_indicator import __version__
-from cc_indicator import autostart, hooks
-from cc_indicator.i18n import COLOR_SYMBOLS, text
-from cc_indicator.models import SessionStatus
-from cc_indicator.presentation import session_row_markup, shorten, summary_text, tool_label
-from cc_indicator.service import SessionService, SessionView
+from agent_tray import __version__
+from agent_tray import autostart, hooks
+from agent_tray.i18n import COLOR_SYMBOLS, text
+from agent_tray.models import SessionStatus
+from agent_tray.presentation import session_row_markup, shorten, summary_text, tool_label
+from agent_tray.service import SessionService, SessionView
 
 
 LOG = logging.getLogger(__name__)
@@ -31,16 +31,16 @@ class LinuxIndicatorApp:
         self._focus_generation = 0
         self._fingerprint: tuple[tuple[object, ...], ...] | None = None
         self._message = ""
-        self._asset_context = as_file(files("cc_indicator.assets"))
+        self._asset_context = as_file(files("agent_tray.assets"))
         self._asset_dir = self._asset_context.__enter__()
         self.indicator = AyatanaAppIndicator3.Indicator.new(
-            "cc-indicator",
-            "cc-indicator-symbolic",
+            "agent-tray",
+            "agent-tray-symbolic",
             AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS,
         )
         self.indicator.set_icon_theme_path(str(self._asset_dir))
         self.indicator.set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE)
-        self.indicator.set_title("CC Indicator")
+        self.indicator.set_title("AgentTray")
         self._rebuild_menu([])
 
     def _disabled_item(self, label: str) -> object:
@@ -415,17 +415,17 @@ class LinuxIndicatorApp:
             f"{text('tool_claude')} {tools['claude']}"
         )
         label = " CC " + summary + "  " + tool_text
-        self.indicator.set_label(label, f"CC Indicator · {summary_text(sessions)} · {summary}")
+        self.indicator.set_label(label, f"AgentTray · {summary_text(sessions)} · {summary}")
         icon = (
-            "cc-indicator-attention"
+            "agent-tray-attention"
             if attention
-            else "cc-indicator-working"
+            else "agent-tray-working"
             if working
-            else "cc-indicator-done"
+            else "agent-tray-done"
             if done
-            else "cc-indicator-idle"
+            else "agent-tray-idle"
         )
-        self.indicator.set_icon_full(icon, "CC Indicator")
+        self.indicator.set_icon_full(icon, "AgentTray")
 
     def _refresh(self) -> bool:
         sessions = self.service.sessions()
